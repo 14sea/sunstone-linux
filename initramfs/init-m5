@@ -1,0 +1,132 @@
+#!/bin/busybox sh
+# sunstone-linux milestone 5 (same flow as M3): USB gadget (NCM + ACM), log the UFS LUNs and partitions, then boot
+# Arch from the ext4 on userdata (switch_root to systemd; networkd and sshd take over the gadget).
+# Without a usable root it falls back to M2's rescue setup: udhcpd + dropbear on 192.168.7.2, and
+# a reboot to fastboot (pstore pull) if nobody logs in within $GRACE seconds.
+GRACE=300
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /run /sys/fs/pstore
+mount -t devpts devpts /dev/pts
+mount -t tmpfs -o mode=0755 tmpfs /run
+mount -t configfs configfs /sys/kernel/config
+mount -t pstore pstore /sys/fs/pstore 2>/dev/null
+
+log() { echo "sunstone-m5: $*" > /dev/kmsg; }
+bye() { log "$1; rebooting (to fastboot, then the recovery reads pstore)"; sync; reboot -f; }
+
+log "init running: $(uname -r), cpus $(cat /sys/devices/system/cpu/online)"
+[ -c /dev/pmsg0 ] && echo "sunstone-m5 pmsg: init reached, $(uname -r)" > /dev/pmsg0
+
+# dwc3 probes after GCC, RPM and the PHY; deferred probing can take a while
+for i in $(seq 30); do [ -n "$(ls /sys/class/udc 2>/dev/null)" ] && break; sleep 1; done
+UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
+if [ -z "$UDC" ]; then
+	log "no UDC after 30 s"
+	mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+	log "deferred: $(cat /sys/kernel/debug/devices_deferred 2>/dev/null | tr '\n' ';')"
+	bye "USB never came up"
+fi
+log "UDC $UDC"
+
+G=/sys/kernel/config/usb_gadget/sunstone
+mkdir -p $G/strings/0x409 $G/configs/c.1/strings/0x409 $G/functions/ncm.usb0 $G/functions/acm.GS0
+echo 0x1d6b > $G/idVendor		# Linux Foundation
+echo 0x0104 > $G/idProduct		# Multifunction Composite Gadget
+echo 0x0200 > $G/bcdUSB
+echo sunstone-linux > $G/strings/0x409/manufacturer
+echo "sunstone-linux M5" > $G/strings/0x409/product
+echo sunstone-linux > $G/strings/0x409/serialnumber
+echo ncm+acm > $G/configs/c.1/strings/0x409/configuration
+echo 500 > $G/configs/c.1/MaxPower
+# fixed locally administered MACs, so the host sees the same interface every boot
+echo 02:53:4e:00:00:02 > $G/functions/ncm.usb0/dev_addr
+echo 02:53:4e:00:00:01 > $G/functions/ncm.usb0/host_addr
+ln -s $G/functions/ncm.usb0 $G/configs/c.1/
+# no AT-command protocol on the ACM port: ModemManager on the host (strict policy) then leaves it alone
+echo 0 > $G/functions/acm.GS0/protocol
+ln -s $G/functions/acm.GS0 $G/configs/c.1/
+echo "$UDC" > $G/UDC || bye "binding the gadget to $UDC failed"
+IF=$(cat $G/functions/ncm.usb0/ifname)
+log "gadget bound, interface $IF"
+
+# UFS: wait for the SCSI disks (one per LUN), then list them and their GPT partition names
+for i in $(seq 20); do ls /sys/class/block/sd* >/dev/null 2>&1 && break; sleep 1; done
+for d in /sys/class/block/sd?; do
+	[ -e "$d" ] || continue
+	n=${d##*/}
+	log "ufs $n: $(cat $d/device/model 2>/dev/null | tr -s ' ') $(( $(cat $d/size) / 2048 )) MiB, lun $(basename $(readlink -f $d/device))"
+	parts=""
+	for p in $d/${n}[0-9]*; do
+		[ -e "$p" ] && parts="$parts $(grep PARTNAME $p/uevent | cut -d= -f2)"
+	done
+	log "ufs $n partitions:$parts"
+done
+[ -e /sys/class/block/sda ] || log "no UFS disks"
+
+# Arch on userdata: the partition is found by GPT name and mounted only as ext4, so a
+# userdata that holds anything else (iOS, Android) is never touched
+ROOTDEV=""
+for p in /sys/class/block/sd*[0-9]; do
+	grep -qx PARTNAME=userdata $p/uevent 2>/dev/null && ROOTDEV=/dev/${p##*/} && break
+done
+mkdir -p /newroot
+if grep -qw sunstone.rescue /proc/cmdline; then
+	log "sunstone.rescue on the command line; rescue mode"
+elif [ -z "$ROOTDEV" ]; then
+	log "no userdata partition; rescue mode"
+elif ! mount -t ext4 -o rw,noatime "$ROOTDEV" /newroot; then
+	log "userdata ($ROOTDEV) is not a mountable ext4; rescue mode"
+elif [ ! -x /newroot/usr/lib/systemd/systemd ]; then
+	log "userdata ($ROOTDEV) has no systemd; rescue mode"
+	umount /newroot
+else
+	log "switching to the root on $ROOTDEV ($(cat /newroot/etc/hostname 2>/dev/null))"
+	[ -c /dev/pmsg0 ] && echo "sunstone-m5 pmsg: switch_root to $ROOTDEV" > /dev/pmsg0
+	umount /sys/fs/pstore /sys/kernel/debug 2>/dev/null
+	for m in /dev /proc /sys /run; do mount --move $m /newroot$m; done
+	exec switch_root /newroot /usr/lib/systemd/systemd
+fi
+
+# rescue mode: M2's network, udhcpd and dropbear from the initramfs
+
+ip link set lo up
+ip addr add 192.168.7.2/24 dev "$IF"
+ip link set "$IF" up
+cat > /run/udhcpd.conf <<EOF
+start 192.168.7.1
+end 192.168.7.1
+max_leases 1
+interface $IF
+lease_file /run/udhcpd.leases
+option subnet 255.255.255.0
+EOF
+touch /run/udhcpd.leases
+busybox-extras udhcpd /run/udhcpd.conf || log "udhcpd failed; the host needs a static 192.168.7.1"
+
+mkdir -p /etc/dropbear
+# foreground (-F, backgrounded here) with -E: the log stays on stderr, and the login check below
+# reads it, so even a one-command ssh counts
+dropbear -R -s -E -F -p 22 2>> /run/dropbear.log &
+sleep 1
+pidof dropbear >/dev/null || bye "dropbear did not start: $(tail -1 /run/dropbear.log)"
+log "dropbear listening on 192.168.7.2:22"
+
+# a root shell on the ACM port as the fallback channel (host: /dev/ttyACM0)
+setsid sh -c 'while :; do getty -n -l /bin/sh 115200 ttyGS0; sleep 1; done' &
+
+t=0
+while [ $t -lt $GRACE ]; do
+	if grep -q 'auth succeeded' /run/dropbear.log 2>/dev/null; then
+		log "ssh session seen after ${t}s; staying up (reboot from the shell when done)"
+		break
+	fi
+	[ $((t % 30)) -eq 0 ] && log "waiting for ssh ${t}s: udc $(cat /sys/class/udc/$UDC/state), $IF $(cat /sys/class/net/$IF/operstate), lease $(wc -c < /run/udhcpd.leases)"
+	sleep 5; t=$((t + 5))
+done
+[ $t -ge $GRACE ] && bye "no ssh within ${GRACE}s"
+
+while :; do sleep 3600; done

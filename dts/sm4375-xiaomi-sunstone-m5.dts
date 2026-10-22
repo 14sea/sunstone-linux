@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Xiaomi Redmi Note 12 5G (sunstone), SM4375 "blair": milestone 5 tree = M4 + modem and Wi-Fi.
+ *
+ * The modem (MPSS PAS) runs the WLAN firmware of the WCN3988 (chip 0x150, WLAN.HL.3.3.2); Linux
+ * talks to it through ath10k snoc. Firmware comes read-only from the phone's modem_a partition
+ * (sunstone-fw-install in rootfs-overlay); rmtfs serves copies of modemst1/2, fsg and fsc, so
+ * the EFS partitions are never written. WLAN supplies as on the downstream icnss node (and
+ * Sony's pdx225): cx-mx PMR735A L2, 1.8 V XO PM6125 L16, 1.3 V RFA PM6125 L2, 3.3 V ch0/ch1
+ * PM6125 L23/L21. MSA at wlan@86500000 and the modem carveout at 0x8b800000 match the dtsi.
+ */
+#include "sm4375-xiaomi-sunstone-m4.dts"
+
+/ {
+	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 5";
+};
+
+&remoteproc_mss {
+	firmware-name = "qcom/sm4375/xiaomi/sunstone/modem.mdt";
+	status = "okay";
+};
+
+&wifi {
+	vdd-0.8-cx-mx-supply = <&pmr735a_l2>;
+	vdd-1.8-xo-supply = <&pm6125_l16>;
+	vdd-1.3-rfa-supply = <&pm6125_l2>;
+	vdd-3.3-ch0-supply = <&pm6125_l23>;
+	vdd-3.3-ch1-supply = <&pm6125_l21>;
+	status = "okay";
+};
+
+&rpm_requests {
+	regulators-0 {
+		pm6125_l2: l2 {
+			regulator-min-microvolt = <1304000>;
+			regulator-max-microvolt = <1304000>;
+		};
+
+		pm6125_l16: l16 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		pm6125_l21: l21 {
+			regulator-min-microvolt = <3304000>;
+			regulator-max-microvolt = <3304000>;
+		};
+
+		pm6125_l23: l23 {
+			regulator-min-microvolt = <3304000>;
+			regulator-max-microvolt = <3304000>;
+		};
+	};
+
+	regulators-1 {
+		pmr735a_l2: l2 {
+			regulator-min-microvolt = <640000>;
+			regulator-max-microvolt = <640000>;
+		};
+	};
+};

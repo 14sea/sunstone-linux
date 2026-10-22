@@ -1,0 +1,33 @@
+#!/bin/sh
+# sunstone: put the vendor firmware Linux needs where it looks for it, read-only from the phone's
+# own partitions (nothing vendor-made is in the sunstone-linux repo):
+#  - modem_a (vfat, mounted read-only): modem.mdt/.bNN, modem_pr, the pd-mapper jsn files,
+#    wlanmdsp.mbn and the WLAN board files -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
+#  - modemst1/2, fsg, fsc (the modem's EFS) -> /var/lib/rmtfs/, served by rmtfs-dir.service,
+#    so the modem's EFS writes land in these copies and never on the partitions.
+# Re-running refreshes the firmware but keeps existing EFS copies.
+set -eu
+FW=/lib/firmware/qcom/sm4375/xiaomi/sunstone
+EFS=/var/lib/rmtfs
+MNT=$(mktemp -d)
+trap 'umount "$MNT" 2>/dev/null; rmdir "$MNT"' EXIT
+
+mount -o ro /dev/disk/by-partlabel/modem_a "$MNT"
+mkdir -p "$FW"
+cp "$MNT"/image/modem.mdt "$MNT"/image/modem.b* "$MNT"/image/*.jsn "$MNT"/image/wlanmdsp.mbn \
+	"$MNT"/image/bdwlan* "$FW"/
+cp -r "$MNT"/image/modem_pr "$FW"/
+echo "firmware: $(ls "$FW" | wc -l) files in $FW"
+
+mkdir -p "$EFS"
+for p in modemst1 modemst2 fsg fsc; do
+	if [ -s "$EFS/$p" ]; then
+		echo "efs: $EFS/$p kept"
+	else
+		dd if=/dev/disk/by-partlabel/$p of="$EFS/$p.new" bs=1M status=none && mv "$EFS/$p.new" "$EFS/$p"
+		echo "efs: $EFS/$p copied ($(stat -c %s "$EFS/$p") bytes)"
+	fi
+done
+# rmtfs looks partitions up as modemst1/2, fsc, fsg or, in directory mode, by its own names
+ln -sf modemst1 "$EFS/modem_fs1"; ln -sf modemst2 "$EFS/modem_fs2"
+ln -sf fsc "$EFS/modem_fsc"; ln -sf fsg "$EFS/modem_fsg"

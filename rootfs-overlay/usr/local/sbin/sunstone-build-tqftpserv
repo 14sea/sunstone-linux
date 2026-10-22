@@ -1,0 +1,12 @@
+#!/bin/sh
+# sunstone: build and install tqftpserv (the modem fetches wlanmdsp.mbn and friends over TFTP
+# through it); not packaged for Arch Linux ARM. Needs network: all_proxy=socks5h://127.0.0.1:1080
+set -eu
+pacman -S --noconfirm --needed gcc make meson ninja git pkgconf zstd qrtr-git
+mkdir -p /root/src && cd /root/src
+[ -d tqftpserv ] || git -c http.proxy="${all_proxy:-}" clone https://github.com/linux-msm/tqftpserv.git
+cd tqftpserv
+meson setup build --prefix=/usr/local -Dsystemd-unit-prefix=/etc/systemd/system --reconfigure
+ninja -C build install
+systemctl daemon-reload
+systemctl enable tqftpserv.service tqftpserv-populate-readwrite.service
