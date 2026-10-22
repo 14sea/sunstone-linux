@@ -10,6 +10,15 @@ KB=$ROOT/out/kbuild
 M="make -C $SRC O=$KB ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)"
 mkdir -p "$KB"
 
+# local patches (kernel/patches/*.patch), each applied once
+for p in "$ROOT"/kernel/patches/*.patch; do
+	[ -e "$p" ] || continue
+	if ! patch -d "$SRC" -p1 -R -s -f --dry-run < "$p" >/dev/null 2>&1; then
+		patch -d "$SRC" -p1 -N -s < "$p"
+		echo "applied $(basename "$p")"
+	fi
+done
+
 # initramfs list with absolute paths (@ROOT@ = this checkout)
 sed -e "s|@ROOT@|$ROOT|g" "$ROOT/initramfs/$STAGE.list" > "$ROOT/out/initramfs-$STAGE.list"
 grep -o "$ROOT/[^ ]*" "$ROOT/out/initramfs-$STAGE.list" | while read -r f; do
