@@ -1,0 +1,32 @@
+power: supply: bq25890: accept the Southchip SC89890H (part number 4)
+
+sunstone-linux local patch. sunstone's charger reports PN 4 in REG14 (boot-12: "Unknown chip ID 4");
+the downstream DT drives it with the BQ25890 driver.
+
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -26,6 +26,7 @@
+ #define BQ25890_ID			3
+ #define BQ25895_ID			7
+ #define BQ25896_ID			0
++#define SC89890H_ID			4
+ 
+ #define PUMP_EXPRESS_START_DELAY	(5 * HZ)
+ #define PUMP_EXPRESS_MAX_TRIES		6
+@@ -1318,6 +1319,16 @@
+ 		bq->chip_version = BQ25895;
+ 		break;
+ 
++	/*
++	 * Southchip SC89890H, the BQ25890 register map. The vendor kernels drive it with the
++	 * BQ25890 driver; some field steps differ slightly (e.g. ICHG), so use it with
++	 * linux,read-back-settings to keep the values the bootloader programmed.
++	 */
++	case SC89890H_ID:
++		dev_info(bq->dev, "SC89890H, handled as BQ25890\n");
++		bq->chip_version = BQ25890;
++		break;
++
+ 	default:
+ 		dev_err(bq->dev, "Unknown chip ID %d\n", id);
+ 		return -ENODEV;
