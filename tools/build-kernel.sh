@@ -10,15 +10,17 @@ KB=$ROOT/out/kbuild
 M="make -C $SRC O=$KB ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)"
 mkdir -p "$KB"
 
-# initramfs list with absolute paths
-sed -e "s|@BUSYBOX@|$ROOT/downloads/alpine/bb/bin/busybox.static|; s|@INIT@|$ROOT/initramfs/init-$STAGE|" \
-	"$ROOT/initramfs/$STAGE.list" > "$ROOT/out/initramfs-$STAGE.list"
+# initramfs list with absolute paths (@ROOT@ = this checkout)
+sed -e "s|@ROOT@|$ROOT|g" "$ROOT/initramfs/$STAGE.list" > "$ROOT/out/initramfs-$STAGE.list"
+grep -o "$ROOT/[^ ]*" "$ROOT/out/initramfs-$STAGE.list" | while read -r f; do
+	[ -e "$f" ] || { echo "initramfs input missing: $f" >&2; exit 1; }
+done
 
 [ -f "$KB/.config" ] || $M defconfig >/dev/null
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$KB" "$KB/.config" "$ROOT/kernel/platforms-off.config" "$ROOT/kernel/sunstone.config" >/dev/null
 "$SRC/scripts/config" --file "$KB/.config" --set-str INITRAMFS_SOURCE "$ROOT/out/initramfs-$STAGE.list"
 $M olddefconfig >/dev/null
-for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS; do
+for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS USB_CONFIGFS_NCM PHY_QCOM_USB_SNPS_FEMTO_V2; do
 	grep -q "^CONFIG_$o=y" "$KB/.config" || { echo "CONFIG_$o did not end up =y" >&2; exit 1; }
 done
 $M Image
