@@ -23,6 +23,9 @@
       內容），沒有 board_id 0xff 對應的 `bdwlan.bin`；小米按自己的 SKU/地區選文件，規則要從小米開源的 sunstone 內核
       （icnss 的 BDF 文件名）查。在弄清之前不要隨便挑一個（發射功率表可能不對）。不要為了看日誌去啟動 crDroid：
       它可能格式化現在裝著 Arch 的 userdata。
+      小米 sunstone-u-oss 內核（drivers/soc/qcom/icnss2）只對 WCN6750 下發 BDF；WCN3988 是 modem 上的 WLAN 固件自己
+      經 TFTP 從 modem_a 讀。下一步：modem 重啟時 `strace -e openat -p <tqftpserv>` 看固件打開哪個 `bdwlan.*`，
+      再把那個文件做成 ath10k 的 board.bin（或 board-2.bin 的 variant 條目）。
 - [ ] **每次重啟都進 fastboot**：shim 總是把 PON 原因設為 fastboot（調試用）。已改（未驗證）：DTS 給 PM6125 PON 加
       `mode-normal = <0>`，普通 `reboot` 寫 0 回到 Linux，`reboot bootloader` 進 fastboot，panic 仍進 fastboot。
       刷機流程改用 `tools/remote/to-fastboot.sh`。
