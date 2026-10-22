@@ -1,7 +1,8 @@
-power: supply: bq25890: accept the Southchip SC89890H (part number 4)
+power: supply: bq25890: accept the Southchip SC89890H (part number 4), set the fwnode
 
 sunstone-linux local patch. sunstone's charger reports PN 4 in REG14 (boot-12: "Unknown chip ID 4");
-the downstream DT drives it with the BQ25890 driver.
+the downstream DT drives it with the BQ25890 driver. The power supply also gets the device's fwnode,
+so a battery can reference the charger with power-supplies (boot-13: the SM5602 deferred forever).
 
 --- a/drivers/power/supply/bq25890_charger.c
 +++ b/drivers/power/supply/bq25890_charger.c
@@ -13,7 +14,16 @@ the downstream DT drives it with the BQ25890 driver.
  
  #define PUMP_EXPRESS_START_DELAY	(5 * HZ)
  #define PUMP_EXPRESS_MAX_TRIES		6
-@@ -1318,6 +1319,16 @@
+@@ -1036,6 +1037,8 @@
+ 
+ 	psy_cfg.supplied_to = bq25890_charger_supplied_to;
+ 	psy_cfg.num_supplicants = ARRAY_SIZE(bq25890_charger_supplied_to);
++	/* lets a DT battery name this charger in power-supplies */
++	psy_cfg.fwnode = dev_fwnode(bq->dev);
+ 
+ 	bq->charger = devm_power_supply_register(bq->dev, &bq->desc, &psy_cfg);
+ 
+@@ -1318,6 +1321,16 @@
  		bq->chip_version = BQ25895;
  		break;
  
