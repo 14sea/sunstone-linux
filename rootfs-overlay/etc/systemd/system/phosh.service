@@ -1,0 +1,33 @@
+# sunstone: start Phosh for user alarm (uid 1000) on tty7, after upstream phosh's data/phosh.service
+# (Arch's phosh package ships the PAM config and the user units, but no system service).
+[Unit]
+Description=Phosh, a shell for mobile phones
+Wants=dbus.socket systemd-logind.service
+After=dbus.socket systemd-logind.service systemd-user-sessions.service
+Conflicts=getty@tty7.service
+After=getty@tty7.service
+
+[Service]
+Type=simple
+# the logind session only becomes active on the foreground VT (tty1 holds the console)
+ExecStartPre=+/usr/bin/chvt 7
+# no GPU driver yet: let wlroots use Mesa's llvmpipe through EGL (GLES2 renderer, dmabuf for GTK4)
+# instead of its pixman fallback, under which phosh died with a Wayland protocol error
+Environment=WLR_RENDERER_ALLOW_SOFTWARE=1
+ExecStart=/usr/bin/phosh-session
+User=1000
+WorkingDirectory=~
+PAMName=phosh
+TTYPath=/dev/tty7
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

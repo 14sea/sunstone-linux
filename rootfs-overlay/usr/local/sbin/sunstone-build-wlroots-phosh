@@ -1,0 +1,25 @@
+#!/bin/sh
+# sunstone: rebuild Arch's wlroots0.20 with the layer-shell relaxation phosh needs
+# (/usr/local/share/sunstone/wlroots0.20/*.patch), install it and hold it in pacman.conf.
+# Run as root with network; builds as user alarm.
+set -eu
+D=/home/alarm/pkg-wlroots
+P=/usr/local/share/sunstone/wlroots0.20
+pacman -S --noconfirm --needed base-devel git glslang meson ninja vulkan-headers xorg-xwayland
+rm -rf "$D"
+runuser -u alarm -- git clone https://gitlab.archlinux.org/archlinux/packaging/packages/wlroots0.20.git "$D"
+cp "$P"/*.patch "$D"/
+cd "$D"
+# local release on top of Arch's, the patch applied in prepare()
+sed -i 's/^pkgrel=\(.*\)$/pkgrel=\1.1/' PKGBUILD
+cat >> PKGBUILD <<'PB'
+
+prepare() {
+	cd "${pkgname}"
+	for p in "${srcdir}"/../*.patch; do git apply "$p"; done
+}
+PB
+runuser -u alarm -- sh -c 'gpg -q --import keys/pgp/*.asc; makepkg -f -A'
+pacman -U --noconfirm "$D"/wlroots0.20-*.pkg.tar.*
+grep -q '^IgnorePkg.*wlroots0.20' /etc/pacman.conf ||
+	sed -i 's/^#\?IgnorePkg *=.*/IgnorePkg = wlroots0.20/' /etc/pacman.conf
