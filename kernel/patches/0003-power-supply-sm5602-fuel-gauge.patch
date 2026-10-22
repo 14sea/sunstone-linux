@@ -1,0 +1,293 @@
+power: supply: add a read-only Silicon Mitus SM5602 fuel gauge driver
+
+sunstone-linux local patch. Register map and conversions from the Xiaomi vendor sm5602_fg.c, as
+verified in ios-sunstone (research/sm5602/NOTES.md) against the downstream kernel's readings.
+
+diff --color -ruN a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -290,6 +290,13 @@
+ 	  Say Y to include support for SBS battery driver for SBS-compliant
+ 	  gas gauges.
+ 
++config BATTERY_SM5602
++	tristate "Silicon Mitus SM5602 fuel gauge"
++	depends on I2C
++	help
++	  Say Y to read the Silicon Mitus SM5602 fuel gauge (state of charge,
++	  voltage, current, temperature, cycle count) as a battery power supply.
++
+ config CHARGER_SBS
+ 	tristate "SBS Compliant charger"
+ 	depends on I2C
+diff --color -ruN a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -47,6 +47,7 @@
+ obj-$(CONFIG_BATTERY_IPAQ_MICRO) += ipaq_micro_battery.o
+ obj-$(CONFIG_BATTERY_WM97XX)	+= wm97xx_battery.o
+ obj-$(CONFIG_BATTERY_SBS)	+= sbs-battery.o
++obj-$(CONFIG_BATTERY_SM5602)	+= sm5602_fuel_gauge.o
+ obj-$(CONFIG_CHARGER_SBS)	+= sbs-charger.o
+ obj-$(CONFIG_MANAGER_SBS)	+= sbs-manager.o
+ obj-$(CONFIG_BATTERY_BQ27XXX)	+= bq27xxx_battery.o
+diff --color -ruN a/drivers/power/supply/sm5602_fuel_gauge.c b/drivers/power/supply/sm5602_fuel_gauge.c
+--- a/drivers/power/supply/sm5602_fuel_gauge.c
++++ b/drivers/power/supply/sm5602_fuel_gauge.c
+@@ -0,0 +1,256 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Silicon Mitus SM5602 fuel gauge, read-only.
++ *
++ * The gauge keeps its model and state across reboots as long as the battery is connected
++ * (the bootloader and the vendor kernel load the battery profile), so this driver only reads
++ * it: state of charge, voltage, current, temperature, cycle count and capacities. Register
++ * map and conversions as in the vendor driver (sm5602_fg.c): 16-bit little-endian words.
++ */
++
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/mod_devicetable.h>
++#include <linux/power_supply.h>
++#include <linux/property.h>
++
++#define SM5602_REG_DEVICE_ID	0x00
++#define SM5602_REG_SOC		0x05
++#define SM5602_REG_OCV		0x06
++#define SM5602_REG_VOLTAGE	0x07
++#define SM5602_REG_CURRENT	0x08
++#define SM5602_REG_TEMP_IN	0x09
++#define SM5602_REG_TEMP_EX	0x0a
++#define SM5602_REG_CYCLE	0x0b
++#define SM5602_REG_BAT_CAP	0x62	/* full charge capacity */
++#define SM5602_REG_RMC		0x84	/* remaining capacity */
++
++#define SM5602_SIGN		BIT(15)
++#define SM5602_TABLE_LEN	101	/* thermal table: -20 .. 80 C */
++
++struct sm5602 {
++	struct i2c_client *client;
++	struct power_supply *psy;
++	u32 rsns;			/* sense resistor code, 0 = default 5 mOhm */
++	s16 table[SM5602_TABLE_LEN];
++	bool have_table;
++};
++
++static int sm5602_read(struct sm5602 *sm, u8 reg)
++{
++	return i2c_smbus_read_word_data(sm->client, reg);
++}
++
++/* NTC reading -> degrees C through the battery's thermal table (vendor _calculate_battery_temp_ex) */
++static int sm5602_temp_ex(struct sm5602 *sm, u16 raw)
++{
++	s16 val;
++	int i;
++
++	if (raw >= 0x8001 && raw <= 0x823b)
++		raw = 0;
++	val = (s16)raw;
++	if (val >= sm->table[0])
++		return -20;
++	if (val <= sm->table[SM5602_TABLE_LEN - 1])
++		return 80;
++	for (i = 0; i < SM5602_TABLE_LEN; i++) {
++		if (val >= sm->table[i]) {
++			int t = -20 + i;
++
++			if (t >= 1 && val != sm->table[i])
++				t--;
++			return t;
++		}
++	}
++	return 25;
++}
++
++static int sm5602_current_ua(struct sm5602 *sm, u16 raw)
++{
++	/* 1000/4088 mA per LSB at 10 mOhm; code 0 means the 5 mOhm default */
++	int rsns = sm->rsns ? sm->rsns : 5;
++	int ma = (raw & 0x7fff) * 1000 / 4088 * 10 / rsns;
++
++	/* bit 15 set: discharging */
++	return (raw & SM5602_SIGN) ? -ma * 1000 : ma * 1000;
++}
++
++static int sm5602_status(struct sm5602 *sm, struct power_supply *psy)
++{
++	int cur = sm5602_read(sm, SM5602_REG_CURRENT);
++	int soc = sm5602_read(sm, SM5602_REG_SOC);
++
++	if (cur < 0 || soc < 0)
++		return POWER_SUPPLY_STATUS_UNKNOWN;
++	/* psy from the caller: get_property can run before devm_power_supply_register returns */
++	if (power_supply_am_i_supplied(psy) > 0) {
++		if (!(soc & SM5602_SIGN) && ((soc >> 8) & 0x7f) >= 100)
++			return POWER_SUPPLY_STATUS_FULL;
++		return sm5602_current_ua(sm, cur) > 0 ? POWER_SUPPLY_STATUS_CHARGING :
++							POWER_SUPPLY_STATUS_NOT_CHARGING;
++	}
++	return POWER_SUPPLY_STATUS_DISCHARGING;
++}
++
++static int sm5602_get_property(struct power_supply *psy, enum power_supply_property psp,
++			       union power_supply_propval *val)
++{
++	struct sm5602 *sm = power_supply_get_drvdata(psy);
++	int raw;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_STATUS:
++		val->intval = sm5602_status(sm, psy);
++		return 0;
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = 1;
++		return 0;
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
++		return 0;
++	default:
++		break;
++	}
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_CAPACITY:
++		raw = sm5602_read(sm, SM5602_REG_SOC);
++		if (raw < 0)
++			return raw;
++		val->intval = (raw & SM5602_SIGN) ? 0 : min((raw >> 8) & 0x7f, 100);
++		return 0;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		raw = sm5602_read(sm, SM5602_REG_VOLTAGE);
++		if (raw < 0)
++			return raw;
++		/* mV = 1800 * code / 19622 + 2700, bit 15 = below 2.7 V */
++		val->intval = (raw & SM5602_SIGN ? -1 : 1) * 1800 * (raw & 0x7fff) / 19622 * 1000 +
++			      2700000;
++		return 0;
++	case POWER_SUPPLY_PROP_VOLTAGE_OCV:
++		raw = sm5602_read(sm, SM5602_REG_OCV);
++		if (raw < 0)
++			return raw;
++		val->intval = ((raw & 0x0fff) * 1000 / 2048 + ((raw & 0xf000) >> 11) * 1000) * 1000;
++		return 0;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		raw = sm5602_read(sm, SM5602_REG_CURRENT);
++		if (raw < 0)
++			return raw;
++		val->intval = sm5602_current_ua(sm, raw);
++		return 0;
++	case POWER_SUPPLY_PROP_TEMP:
++		if (sm->have_table) {
++			raw = sm5602_read(sm, SM5602_REG_TEMP_EX);
++			if (raw < 0)
++				return raw;
++			val->intval = sm5602_temp_ex(sm, raw) * 10;
++		} else {
++			raw = sm5602_read(sm, SM5602_REG_TEMP_IN);
++			if (raw < 0)
++				return raw;
++			val->intval = (raw & SM5602_SIGN ? -1 : 1) * (raw & 0xff) * 10;
++		}
++		return 0;
++	case POWER_SUPPLY_PROP_CYCLE_COUNT:
++		raw = sm5602_read(sm, SM5602_REG_CYCLE);
++		if (raw < 0)
++			return raw;
++		val->intval = raw;
++		return 0;
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		raw = sm5602_read(sm, psp == POWER_SUPPLY_PROP_CHARGE_FULL ?
++				  SM5602_REG_BAT_CAP : SM5602_REG_RMC);
++		if (raw < 0)
++			return raw;
++		val->intval = (raw & 0x7fff) * 1000 / 2048 * 1000;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static const enum power_supply_property sm5602_props[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_VOLTAGE_OCV,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_TEMP,
++	POWER_SUPPLY_PROP_CYCLE_COUNT,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++};
++
++static const struct power_supply_desc sm5602_desc = {
++	.name = "sm5602-battery",
++	.type = POWER_SUPPLY_TYPE_BATTERY,
++	.properties = sm5602_props,
++	.num_properties = ARRAY_SIZE(sm5602_props),
++	.get_property = sm5602_get_property,
++};
++
++static int sm5602_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct power_supply_config cfg = {};
++	struct sm5602 *sm;
++	u32 table[SM5602_TABLE_LEN];
++	int id, i;
++
++	sm = devm_kzalloc(dev, sizeof(*sm), GFP_KERNEL);
++	if (!sm)
++		return -ENOMEM;
++	sm->client = client;
++
++	id = i2c_smbus_read_word_data(client, SM5602_REG_DEVICE_ID);
++	if (id < 0)
++		return dev_err_probe(dev, id, "cannot read the device ID\n");
++
++	device_property_read_u32(dev, "siliconmitus,rsns", &sm->rsns);
++	if (!device_property_read_u32_array(dev, "siliconmitus,thermal-table", table,
++					    SM5602_TABLE_LEN)) {
++		for (i = 0; i < SM5602_TABLE_LEN; i++)
++			sm->table[i] = (s16)(u16)table[i];
++		sm->have_table = true;
++	}
++
++	cfg.drv_data = sm;
++	cfg.fwnode = dev_fwnode(dev);
++	sm->psy = devm_power_supply_register(dev, &sm5602_desc, &cfg);
++	if (IS_ERR(sm->psy))
++		return dev_err_probe(dev, PTR_ERR(sm->psy), "cannot register the battery\n");
++
++	dev_info(dev, "SM5602 gauge, device id %#06x, %s temperature\n", id,
++		 sm->have_table ? "battery NTC" : "internal");
++	return 0;
++}
++
++static const struct of_device_id sm5602_of_match[] = {
++	{ .compatible = "siliconmitus,sm5602" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5602_of_match);
++
++static const struct i2c_device_id sm5602_id[] = {
++	{ "sm5602" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, sm5602_id);
++
++static struct i2c_driver sm5602_driver = {
++	.driver = {
++		.name = "sm5602-fuel-gauge",
++		.of_match_table = sm5602_of_match,
++	},
++	.probe = sm5602_probe,
++	.id_table = sm5602_id,
++};
++module_i2c_driver(sm5602_driver);
++
++MODULE_DESCRIPTION("Silicon Mitus SM5602 fuel gauge (read-only)");
++MODULE_LICENSE("GPL");
