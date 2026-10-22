@@ -76,6 +76,9 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 - initramfs：configfs 配出 NCM（或 ECM）gadget，固定 IP（手機 `192.168.7.2/24`，測試主機
   `192.168.7.1`），dropbear + 測試主機的公鑰。
 - 完成標準：在測試主機上 `ssh root@192.168.7.2` 成功。
+- **2026-10-22 boot-3 達成。** 測試主機用專用密鑰 `~/.ssh/sunstone_linux_ed25519`，公鑰在本地 `tools/authorized_keys`（不進 git）。
+  udhcpd 給主機分配 192.168.7.1，不需要 sudo。ACM 串口 `/dev/ttyACM0` 上有一個 root shell 作為備用通道。
+  initramfs 在 300 s 內沒看到 ssh 會話就重啟回 fastboot，方便拉 pstore。
 
 ### M3 rootfs 和發行版
 - DTS：UFS（`ufshc@4804000` + QMP UFS PHY + 時鐘/電源/復位，按下游 DT 和同代 SoC 的主線寫法來寫）。
