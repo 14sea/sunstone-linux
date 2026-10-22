@@ -1,0 +1,7 @@
+# build products, sources and downloads
+out/
+src/
+downloads/
+# device dumps and host-specific settings
+*.dtb.live
+host.conf
