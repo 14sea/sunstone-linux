@@ -1,0 +1,25 @@
+clk: qcom: dispcc-sm6375: give the sleep and XO branches their halt registers
+
+sunstone-linux local patch. disp_cc_sleep_clk and disp_cc_xo_clk are CLK_IS_CRITICAL branches with
+BRANCH_HALT but no .halt_reg, so the status was read from offset 0: "disp_cc_sleep_clk status stuck at
+'off'", the critical enable failed and dispcc probe failed with -EBUSY (boot-33). As on
+dispcc-sm6115, the halt register is the enable register.
+
+--- a/drivers/clk/qcom/dispcc-sm6375.c
++++ b/drivers/clk/qcom/dispcc-sm6375.c
+@@ -477,6 +477,7 @@
+ };
+ 
+ static struct clk_branch disp_cc_sleep_clk = {
++	.halt_reg = 0x5004,
+ 	.halt_check = BRANCH_HALT,
+ 	.clkr = {
+ 		.enable_reg = 0x5004,
+@@ -490,6 +491,7 @@
+ };
+ 
+ static struct clk_branch disp_cc_xo_clk = {
++	.halt_reg = 0x5008,
+ 	.halt_check = BRANCH_HALT,
+ 	.clkr = {
+ 		.enable_reg = 0x5008,
