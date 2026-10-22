@@ -107,3 +107,8 @@
 	vdda33-supply = <&pmr735a_l7>;
 	status = "okay";
 };
+
+&tlmm {
+	/* fingerprint SPI (qup10), owned by TZ: reading these aborts (boot-2) */
+	gpio-reserved-ranges = <13 4>;
+};
