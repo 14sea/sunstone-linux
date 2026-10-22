@@ -46,6 +46,8 @@ echo 500 > $G/configs/c.1/MaxPower
 echo 02:53:4e:00:00:02 > $G/functions/ncm.usb0/dev_addr
 echo 02:53:4e:00:00:01 > $G/functions/ncm.usb0/host_addr
 ln -s $G/functions/ncm.usb0 $G/configs/c.1/
+# no AT-command protocol on the ACM port: ModemManager on the host (strict policy) then leaves it alone
+echo 0 > $G/functions/acm.GS0/protocol
 ln -s $G/functions/acm.GS0 $G/configs/c.1/
 echo "$UDC" > $G/UDC || bye "binding the gadget to $UDC failed"
 IF=$(cat $G/functions/ncm.usb0/ifname)
