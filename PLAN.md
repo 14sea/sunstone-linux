@@ -109,6 +109,11 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 - MPSS PAS（firmware 在 `modem_a`），rmtfs、pd-mapper、tqftpserv（發行版裡都有包），WLAN SMMU stream `0x80`，
   ath10k snoc（WCN3990）。
 - 完成標準：手機自己連上 Wi-Fi，可以去掉 USB 網卡。
+- **2026-10-22 boot-18 達成。** MPSS PAS 加 ath10k snoc 第一次啟動（boot-16）就到了 wlan0。要點：PD mapper 加 sm6375
+  （補丁 0005，域和 modem_a 的 jsn 一致）；固件由手機上的 `sunstone-fw-install` 從 modem_a 只讀拷出（不進 git）；
+  rmtfs 用目錄模式服務 EFS 副本，modemst1/2、fsg、fsc 分區不會被寫；tqftpserv 在手機上編譯；cfg80211 編進內核，
+  所以 regulatory.db 也要編進去；wpa_supplicant 由 udev 在 wlan0 出現時啟動；Wi-Fi MAC 固定為本地管理地址。
+  遺留：modem 首次初始化偶爾卡住約 65 s 後自恢復（TODO.md）。
 
 ### M6 圖形桌面（有餘力時）
 - 顯示：dispcc + MDSS/DPU（`dpu_sm6375` 在主線裡）+ DSI0（`0x5e94000`）+ 面板驅動（xiaomi m17，Samsung DDIC，

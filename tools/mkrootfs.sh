@@ -52,7 +52,7 @@ ln -sf /usr/lib/systemd/system/serial-getty@.service \
 
 # journal into the kernel log, so it also reaches pstore
 install -d "$R/etc/systemd/journald.conf.d"
-printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=info\n' > "$R/etc/systemd/journald.conf.d/kmsg.conf"
+printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=notice\n' > "$R/etc/systemd/journald.conf.d/kmsg.conf"
 
 # repo-managed files (rootfs-overlay/), owned by root
 cp -a "$ROOT/rootfs-overlay/." "$R/"
