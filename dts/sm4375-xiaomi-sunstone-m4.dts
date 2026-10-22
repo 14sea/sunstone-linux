@@ -71,8 +71,9 @@
 		interrupts-extended = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&tlmm 21 GPIO_ACTIVE_LOW>;
 		vcc-supply = <&touch_avdd>;
-		touchscreen-size-x = <1080>;
-		touchscreen-size-y = <2400>;
+		/* the IC reports 1.25x panel pixels (boot-11 target taps: 0.805 px per unit, both axes) */
+		touchscreen-size-x = <1350>;
+		touchscreen-size-y = <3000>;
 		pinctrl-0 = <&ts_int_default &ts_reset_default>;
 		pinctrl-names = "default";
 	};
