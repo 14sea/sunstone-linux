@@ -1,0 +1,12 @@
+#!/bin/sh
+# sunstone: the PMK8350 RTC counts on but Linux may not set it (TZ owns it), so keep
+# "real time - RTC" in /var/lib/rtc-offset, like Android keeps its own offset.
+#   rtc-offset save      after the clock was set correctly (tunnel.sh, NTP)
+#   rtc-offset restore   at boot (rtc-offset.service)
+RTC=/sys/class/rtc/rtc0/since_epoch
+F=/var/lib/rtc-offset
+case "$1" in
+save)	echo $(( $(date +%s) - $(cat $RTC) )) > $F.new && mv $F.new $F ;;
+restore) [ -s $F ] && date -s @$(( $(cat $RTC) + $(cat $F) )) > /dev/null ;;
+*)	echo "usage: rtc-offset save|restore" >&2; exit 2 ;;
+esac

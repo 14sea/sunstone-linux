@@ -54,6 +54,10 @@ ln -sf /usr/lib/systemd/system/serial-getty@.service \
 install -d "$R/etc/systemd/journald.conf.d"
 printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=info\n' > "$R/etc/systemd/journald.conf.d/kmsg.conf"
 
+# repo-managed files (rootfs-overlay/), owned by root
+cp -a "$ROOT/rootfs-overlay/." "$R/"
+chown -R 0:0 $(cd "$ROOT/rootfs-overlay" && find . -mindepth 1 | sed "s|^\.|$R|")
+
 mke2fs -q -t ext4 -L sunstone-root -E lazy_itable_init=0,lazy_journal_init=0 -d "$R" "$IMG" "$SIZE"
 EOF
 e2fsck -fn "$IMG" >/dev/null

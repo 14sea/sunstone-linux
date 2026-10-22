@@ -1,0 +1,14 @@
+[Unit]
+Description=Set the clock from the PMK8350 RTC plus the saved offset
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target time-set.target systemd-timesyncd.service
+Wants=time-set.target
+ConditionPathExists=/var/lib/rtc-offset
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rtc-offset restore
+
+[Install]
+WantedBy=sysinit.target

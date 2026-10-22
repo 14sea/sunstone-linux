@@ -4,7 +4,7 @@
 #   tunnel.sh            (foreground; run with nohup ... & to keep it)
 # On the phone: all_proxy=socks5h://127.0.0.1:1080 pacman -Syu
 HERE=$(cd "$(dirname "$0")" && pwd)
-bash "$HERE/phone.sh" "date -s @$(date +%s) >/dev/null && date"
+bash "$HERE/phone.sh" "date -s @$(date +%s) >/dev/null && date && { [ -x /usr/local/sbin/rtc-offset ] && /usr/local/sbin/rtc-offset save; true; }"
 exec ssh -i ~/.ssh/sunstone_linux_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=no \
 	-o UserKnownHostsFile=/dev/null -o LogLevel=error -o ExitOnForwardFailure=yes \
 	-o ServerAliveInterval=15 -N -R 127.0.0.1:1080 root@192.168.7.2

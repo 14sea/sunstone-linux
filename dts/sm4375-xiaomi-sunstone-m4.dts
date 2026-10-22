@@ -65,3 +65,21 @@
 &pmk8350_rtc {
 	status = "okay";
 };
+
+/* blair's gold cluster tops out at 2016 MHz (EPSS LUT), a step holi's table does not have */
+&cpu6_opp_table {
+	opp-2016000000 {
+		opp-hz = /bits/ 64 <2016000000>;
+		opp-peak-kBps = <(1497600 * 32)>;
+	};
+};
+
+/* not used on this board: the PM6125 RTC is disabled in hardware (probe gets -EPERM), and the
+ * PMK8350 ADC has no channels described yet */
+&pm6125_rtc {
+	status = "disabled";
+};
+
+&pmk8350_vadc {
+	status = "disabled";
+};
