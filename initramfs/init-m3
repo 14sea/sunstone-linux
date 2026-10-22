@@ -72,7 +72,9 @@ for p in /sys/class/block/sd*[0-9]; do
 	grep -qx PARTNAME=userdata $p/uevent 2>/dev/null && ROOTDEV=/dev/${p##*/} && break
 done
 mkdir -p /newroot
-if [ -z "$ROOTDEV" ]; then
+if grep -qw sunstone.rescue /proc/cmdline; then
+	log "sunstone.rescue on the command line; rescue mode"
+elif [ -z "$ROOTDEV" ]; then
 	log "no userdata partition; rescue mode"
 elif ! mount -t ext4 -o rw,noatime "$ROOTDEV" /newroot; then
 	log "userdata ($ROOTDEV) is not a mountable ext4; rescue mode"
@@ -104,7 +106,11 @@ touch /run/udhcpd.leases
 busybox-extras udhcpd /run/udhcpd.conf || log "udhcpd failed; the host needs a static 192.168.7.1"
 
 mkdir -p /etc/dropbear
-dropbear -R -s -p 22 || bye "dropbear did not start"
+# foreground (-F, backgrounded here) with -E: the log stays on stderr, and the login check below
+# reads it, so even a one-command ssh counts
+dropbear -R -s -E -F -p 22 2>> /run/dropbear.log &
+sleep 1
+pidof dropbear >/dev/null || bye "dropbear did not start: $(tail -1 /run/dropbear.log)"
 log "dropbear listening on 192.168.7.2:22"
 
 # a root shell on the ACM port as the fallback channel (host: /dev/ttyACM0)
@@ -112,7 +118,7 @@ setsid sh -c 'while :; do getty -n -l /bin/sh 115200 ttyGS0; sleep 1; done' &
 
 t=0
 while [ $t -lt $GRACE ]; do
-	if netstat -tn 2>/dev/null | grep -q ':22 .*ESTABLISHED'; then
+	if grep -q 'auth succeeded' /run/dropbear.log 2>/dev/null; then
 		log "ssh session seen after ${t}s; staying up (reboot from the shell when done)"
 		break
 	fi
