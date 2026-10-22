@@ -1,0 +1,40 @@
+drm/msm/a6xx: SM6375 a619_holi: speed bin 148, GMU wrapper callbacks
+
+sunstone-linux local patch.
+- sunstone's fuse reads speed bin 148 ("missing support for speed-bin: 148"); the downstream kgsl
+  table gives that bin 700 MHz at most. Without the entry no OPP is filtered out.
+- The SM6375 entry used a6xx_gpu_funcs (real GMU), but blair's a619_holi only has the GMU wrapper
+  (as sm6115's a610). On first GPU use a6xx_gmu_pm_resume tried to boot a GMU that is not there
+  and the phone reset (netconsole breadcrumbs, boot-27..30: last sign of life in
+  adreno_runtime_resume, never in a6xx_pm_resume). Use a6xx_gmuwrapper_funcs and drop the GMU
+  firmware.
+
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -840,12 +840,15 @@
+ 		.revn = 619,
+ 		.fw = {
+ 			[ADRENO_FW_SQE] = "a630_sqe.fw",
+-			[ADRENO_FW_GMU] = "a619_gmu.bin",
+ 		},
+ 		.gmem = SZ_512K,
+ 		.quirks = ADRENO_QUIRK_4GB_VA,
+ 		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
+-		.funcs = &a6xx_gpu_funcs,
++		/*
++		 * sunstone: SM6375/SM4375's a619_holi has no GMU, only the GMU wrapper (downstream
++		 * kgsl "gmu_wrapper" region): the GMU resume path reset the phone on first GPU use
++		 */
++		.funcs = &a6xx_gmuwrapper_funcs,
+ 		.zapfw = "a615_zap.mdt",
+ 		.a6xx = &(const struct a6xx_info) {
+ 			.hwcg = a615_hwcg,
+@@ -857,6 +860,8 @@
+ 			{ 0,   0 },
+ 			{ 190, 1 },
+ 			{ 177, 2 },
++			/* sunstone (SM4375): the downstream table caps bin 148 at 700 MHz */
++			{ 148, 3 },
+ 		),
+ 	}, {
+ 		.chip_ids = ADRENO_CHIP_IDS(0x06010900),

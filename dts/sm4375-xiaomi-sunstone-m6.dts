@@ -150,3 +150,11 @@
 		};
 	};
 };
+
+/*
+ * sm6375.dtsi leaves "qcom,adreno-smmu" out of the GPU SMMU: without it arm-smmu-qcom does not use
+ * its Adreno implementation and msm gets no per-process page tables ("No per-process page tables").
+ */
+&adreno_smmu {
+	compatible = "qcom,sm6375-smmu-v2", "qcom,adreno-smmu", "qcom,smmu-v2";
+};
