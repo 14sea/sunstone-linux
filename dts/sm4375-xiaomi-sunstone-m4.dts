@@ -8,6 +8,9 @@
  * Keys (downstream gpio-keys and qpnp-power-on): power = PM6125 PON KPDPWR, volume down = PM6125
  * PON RESIN, volume up = PMR735A GPIO1 (active low) -- the reverse of pdx225's volume keys.
  * RTC: PMK8350 (read-only for Linux; the offset to real time is kept in userspace).
+ * Touch: FocalTech FT5452 at 0x38 on i2c8 (QUP1 SE2, GPIO19/20). TZ leaves that SE in GSI mode
+ * (FIFO disabled), which i2c-qcom-geni handles through GPI DMA. Reset GPIO21, IRQ GPIO22, AVDD
+ * switched by GPIO49 (downstream focaltech,avdd-gpio); the IO supply stays as ABL set it.
  */
 #define PMK8350_SID 6
 
@@ -21,6 +24,17 @@
 
 / {
 	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 4";
+
+	/* the touch controller's analog supply, switched by GPIO49; on already when ABL hands over */
+	touch_avdd: touch-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_avdd";
+		gpio = <&tlmm 49 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		pinctrl-0 = <&ts_avdd_default>;
+		pinctrl-names = "default";
+	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
@@ -36,6 +50,54 @@
 			linux,can-disable;
 			wakeup-source;
 		};
+	};
+};
+
+&gpi_dma1 {
+	status = "okay";
+};
+
+&qupv3_id_1 {
+	status = "okay";
+};
+
+&i2c8 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	touchscreen@38 {
+		compatible = "focaltech,ft5452";
+		reg = <0x38>;
+		interrupts-extended = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 21 GPIO_ACTIVE_LOW>;
+		vcc-supply = <&touch_avdd>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2400>;
+		pinctrl-0 = <&ts_int_default &ts_reset_default>;
+		pinctrl-names = "default";
+	};
+};
+
+&tlmm {
+	ts_reset_default: ts-reset-default-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ts_int_default: ts-int-default-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	ts_avdd_default: ts-avdd-default-state {
+		pins = "gpio49";
+		function = "gpio";
+		drive-strength = <8>;
+		output-high;
 	};
 };
 
