@@ -1,0 +1,288 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Xiaomi Redmi Note 12 5G (sunstone), SM4375 "blair": M6 + the real display (MDSS/DPU/DSI) instead
+ * of ABL's splash on simpledrm.
+ *
+ * Layout as mainline's qcom,sm6375-mdss binding example, with the downstream DT's values: MDSS IRQ
+ * SPI 186 (the binding example's 83 is not this SoC's), apps SMMU stream 0x820, DSC_0, INTF_1 to
+ * DSI0 + the 7nm PHY. The panel is the "m17 38 0c 0a" 1080x2400 AMOLED in video mode with DSC 1.1
+ * (kernel/patches/0008): vddio = PM6125 L13 1.86 V, avdd = 3.0 V switched by GPIO24, reset on
+ * PMR735A GPIO2 (active low), TE on GPIO23. DSI: vdda 1.2 V = PM6125 L4, refgen.
+ * One msm DRM device now drives display and GPU, so msm.separate_gpu_kms is gone; simpledrm stays
+ * in the tree as the fallback until msm's KMS takes the framebuffer over.
+ */
+#include <dt-bindings/clock/qcom,sm6375-dispcc.h>
+#include "sm4375-xiaomi-sunstone-m6.dts"
+
+/ {
+	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 6 display";
+
+	chosen {
+		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused";
+	};
+
+	panel_avdd: panel-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_avdd";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		gpio = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <233>;
+		/* on when ABL hands over: the splash is showing */
+		regulator-boot-on;
+		pinctrl-0 = <&panel_avdd_default>;
+		pinctrl-names = "default";
+	};
+
+	soc@0 {
+		dispcc: clock-controller@5f00000 {
+			compatible = "qcom,sm6375-dispcc";
+			reg = <0x0 0x05f00000 0x0 0x20000>;
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&gcc GCC_DISP_GPLL0_CLK_SRC>,
+				 <&mdss_dsi0_phy 0>,
+				 <&mdss_dsi0_phy 1>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
+		};
+
+		mdss: display-subsystem@5e00000 {
+			compatible = "qcom,sm6375-mdss";
+			reg = <0x0 0x05e00000 0x0 0x1000>;
+			reg-names = "mdss";
+
+			power-domains = <&dispcc MDSS_GDSC>;
+
+			clocks = <&gcc GCC_DISP_AHB_CLK>,
+				 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+				 <&dispcc DISP_CC_MDSS_MDP_CLK>;
+			clock-names = "iface", "ahb", "core";
+
+			interrupts = <GIC_SPI 186 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			iommus = <&apps_smmu 0x820 0x2>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			mdp: display-controller@5e01000 {
+				compatible = "qcom,sm6375-dpu";
+				reg = <0x0 0x05e01000 0x0 0x8e030>,
+				      <0x0 0x05eb0000 0x0 0x2008>;
+				reg-names = "mdp", "vbif";
+
+				clocks = <&gcc GCC_DISP_HF_AXI_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&dispcc DISP_CC_MDSS_ROT_CLK>,
+					 <&dispcc DISP_CC_MDSS_MDP_LUT_CLK>,
+					 <&dispcc DISP_CC_MDSS_MDP_CLK>,
+					 <&dispcc DISP_CC_MDSS_VSYNC_CLK>,
+					 <&gcc GCC_DISP_THROTTLE_CORE_CLK>;
+				clock-names = "bus", "iface", "rot", "lut", "core", "vsync", "throttle";
+
+				assigned-clocks = <&dispcc DISP_CC_MDSS_VSYNC_CLK>;
+				assigned-clock-rates = <19200000>;
+
+				operating-points-v2 = <&mdp_opp_table>;
+				power-domains = <&rpmpd SM6375_VDDCX>;
+
+				interrupt-parent = <&mdss>;
+				interrupts = <0>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dpu_intf1_out: endpoint {
+							remote-endpoint = <&dsi0_in>;
+						};
+					};
+				};
+
+				/* dispcc MDP rates; 1080x2400@120 needs ~400 MHz */
+				mdp_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					opp-19200000 {
+						opp-hz = /bits/ 64 <19200000>;
+						required-opps = <&rpmpd_opp_min_svs>;
+					};
+
+					opp-200000000 {
+						opp-hz = /bits/ 64 <200000000>;
+						required-opps = <&rpmpd_opp_low_svs>;
+					};
+
+					opp-300000000 {
+						opp-hz = /bits/ 64 <300000000>;
+						required-opps = <&rpmpd_opp_svs>;
+					};
+
+					opp-373500000 {
+						opp-hz = /bits/ 64 <373500000>;
+						required-opps = <&rpmpd_opp_svs_plus>;
+					};
+
+					opp-470000000 {
+						opp-hz = /bits/ 64 <470000000>;
+						required-opps = <&rpmpd_opp_nom>;
+					};
+
+					opp-560000000 {
+						opp-hz = /bits/ 64 <560000000>;
+						required-opps = <&rpmpd_opp_turbo>;
+					};
+				};
+			};
+
+			mdss_dsi0: dsi@5e94000 {
+				compatible = "qcom,sm6375-dsi-ctrl", "qcom,mdss-dsi-ctrl";
+				reg = <0x0 0x05e94000 0x0 0x400>;
+				reg-names = "dsi_ctrl";
+
+				interrupt-parent = <&mdss>;
+				interrupts = <4>;
+
+				clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK>,
+					 <&dispcc DISP_CC_MDSS_BYTE0_INTF_CLK>,
+					 <&dispcc DISP_CC_MDSS_PCLK0_CLK>,
+					 <&dispcc DISP_CC_MDSS_ESC0_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&gcc GCC_DISP_HF_AXI_CLK>;
+				clock-names = "byte", "byte_intf", "pixel", "core", "iface", "bus";
+
+				assigned-clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK_SRC>,
+						  <&dispcc DISP_CC_MDSS_PCLK0_CLK_SRC>;
+				assigned-clock-parents = <&mdss_dsi0_phy 0>, <&mdss_dsi0_phy 1>;
+
+				operating-points-v2 = <&dsi_opp_table>;
+				power-domains = <&rpmpd SM6375_VDDMX>;
+
+				vdda-supply = <&pm6125_l4>;
+				refgen-supply = <&refgen>;
+
+				phys = <&mdss_dsi0_phy>;
+				phy-names = "dsi";
+
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				panel@0 {
+					compatible = "xiaomi,m17-38-0c-0a";
+					reg = <0>;
+
+					vddio-supply = <&pm6125_l13>;
+					avdd-supply = <&panel_avdd>;
+					reset-gpios = <&pmr735a_gpios 2 GPIO_ACTIVE_LOW>;
+
+					pinctrl-0 = <&panel_reset_default &mdp_vsync_default>;
+					pinctrl-names = "default";
+
+					port {
+						panel_in: endpoint {
+							remote-endpoint = <&dsi0_out>;
+						};
+					};
+				};
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dsi0_in: endpoint {
+							remote-endpoint = <&dpu_intf1_out>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+						dsi0_out: endpoint {
+							remote-endpoint = <&panel_in>;
+							data-lanes = <0 1 2 3>;
+						};
+					};
+				};
+
+				dsi_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					opp-187500000 {
+						opp-hz = /bits/ 64 <187500000>;
+						required-opps = <&rpmpd_opp_low_svs>;
+					};
+
+					opp-300000000 {
+						opp-hz = /bits/ 64 <300000000>;
+						required-opps = <&rpmpd_opp_svs>;
+					};
+
+					opp-358000000 {
+						opp-hz = /bits/ 64 <358000000>;
+						required-opps = <&rpmpd_opp_svs_plus>;
+					};
+				};
+			};
+
+			mdss_dsi0_phy: phy@5e94400 {
+				compatible = "qcom,sm6375-dsi-phy-7nm";
+				reg = <0x0 0x05e94400 0x0 0x200>,
+				      <0x0 0x05e94600 0x0 0x280>,
+				      <0x0 0x05e94900 0x0 0x264>;
+				reg-names = "dsi_phy", "dsi_phy_lane", "dsi_pll";
+
+				#clock-cells = <1>;
+				#phy-cells = <0>;
+
+				clocks = <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&rpmcc RPM_SMD_XO_CLK_SRC>;
+				clock-names = "iface", "ref";
+			};
+		};
+	};
+};
+
+&rpm_requests {
+	regulators-0 {
+		/* panel vddio (downstream supply entry 1.86 V) */
+		pm6125_l13: l13 {
+			regulator-min-microvolt = <1856000>;
+			regulator-max-microvolt = <1856000>;
+			regulator-allow-set-load;
+		};
+	};
+};
+
+&tlmm {
+	panel_avdd_default: panel-avdd-default-state {
+		pins = "gpio24";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
+	};
+
+	mdp_vsync_default: mdp-vsync-default-state {
+		pins = "gpio23";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+};
+
+&pmr735a_gpios {
+	panel_reset_default: panel-reset-default-state {
+		pins = "gpio2";
+		function = "normal";
+		power-source = <1>;
+		bias-disable;
+		output-high;
+	};
+};
