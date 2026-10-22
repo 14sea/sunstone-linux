@@ -13,7 +13,8 @@ OUT=$D/$(printf %03d $N).log
 	while [ $t -le 200 ]; do
 		up=$(cut -d' ' -f1 /proc/uptime)
 		st=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)
-		svcs=$(qrtr-lookup 2>/dev/null | awk 'NR>1 {print $1"."$3}' | sort -u | tr '\n' ' ')
+		# service.instance@node (node 1 = this Linux, 0 = the modem)
+		svcs=$(qrtr-lookup 2>/dev/null | tr -d '\0' | awk 'NR>1 {print $1"."$3"@"$4}' | sort -u | tr '\n' ' ')
 		if [ "$svcs" != "$last" ]; then
 			echo "$up state=$st services: $svcs"
 			last=$svcs
@@ -23,7 +24,7 @@ OUT=$D/$(printf %03d $N).log
 		sleep 5; t=$((t + 5))
 	done
 	echo "# kernel"
-	dmesg | grep -E 'remoteproc|q6v5|ath10k|qrtr|rmtfs' 
+	dmesg | grep -E 'remoteproc|q6v5|ath10k|qrtr|rmtfs|sysmon|pdr|pd-mapper|pd_mapper|ssctl|qmi'
 	echo "# tqftpserv / rmtfs"
 	journalctl -b -o short-monotonic --no-pager -u tqftpserv -u rmtfs-dir 2>/dev/null | grep -v truncated
 } > $OUT 2>&1
