@@ -75,3 +75,18 @@
 &pm6125_pon {
 	mode-normal = <0x0>;
 };
+
+/*
+ * Charging: with linux,read-back-settings the driver caps ICHG at what the bootloader left
+ * (512 mA). Program it instead, below the downstream 3 A: 2 A (about 1.86 A on the SC89890H,
+ * whose ICHG step is smaller), CV 4.45 V as downstream and the gauge profile (4.432 V after the
+ * 16 mV step, as the bootloader had it), precharge/termination as read back on boot-13. Input
+ * current stays with the chip's own BC1.2 detection; no reset; JEITA via the TS pin in hardware.
+ */
+&charger {
+	/delete-property/ linux,read-back-settings;
+	ti,charge-current = <2000000>;
+	ti,battery-regulation-voltage = <4450000>;
+	ti,precharge-current = <192000>;
+	ti,termination-current = <256000>;
+};
