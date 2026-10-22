@@ -1,0 +1,22 @@
+Input: edt-ft5x06 - read the full 10-point frame on FT5452
+
+sunstone-linux local patch. sunstone's FT5452 (chip id 0x54) only advances to the next report
+after a full 63-byte frame read (measured: boot-10, 33-byte reads repeat the stale frame while the
+IRQ fires at ~250 Hz; one 63-byte read releases it). Downstream DT: focaltech,max-touch-number = 10.
+
+--- a/drivers/input/touchscreen/edt-ft5x06.c
++++ b/drivers/input/touchscreen/edt-ft5x06.c
+@@ -1460,7 +1460,12 @@
+ };
+ 
+ static const struct edt_i2c_chip_data edt_ft5452_data = {
+-	.max_support_points = 5,
++	/*
++	 * sunstone: the FT5452 firmware there double-buffers reports and only hands out the next
++	 * one after the host has read the whole 10-point frame (3 + 10 * 6 bytes); a 5-point read
++	 * leaves it repeating the old frame (no releases) while it keeps raising the interrupt.
++	 */
++	.max_support_points = 10,
+ };
+ 
+ static const struct edt_i2c_chip_data edt_ft5506_data = {
