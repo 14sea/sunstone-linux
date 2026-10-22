@@ -1,8 +1,8 @@
 #!/bin/busybox sh
-# sunstone-linux milestone 3, step 1: M2's USB gadget + dropbear, plus a read-only look at UFS.
-# Nothing here mounts or writes a UFS partition: it logs the LUNs and GPT partition names to
-# /dev/kmsg (so they also land in pstore) and leaves the rest to ssh. Same fallback as M2: no ssh
-# within $GRACE seconds -> reboot to fastboot, where the test host's watcher reads pstore.
+# sunstone-linux milestone 3: USB gadget (NCM + ACM), log the UFS LUNs and partitions, then boot
+# Arch from the ext4 on userdata (switch_root to systemd; networkd and sshd take over the gadget).
+# Without a usable root it falls back to M2's rescue setup: udhcpd + dropbear on 192.168.7.2, and
+# a reboot to fastboot (pstore pull) if nobody logs in within $GRACE seconds.
 GRACE=300
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 /bin/busybox --install -s /bin
@@ -51,6 +51,44 @@ echo "$UDC" > $G/UDC || bye "binding the gadget to $UDC failed"
 IF=$(cat $G/functions/ncm.usb0/ifname)
 log "gadget bound, interface $IF"
 
+# UFS: wait for the SCSI disks (one per LUN), then list them and their GPT partition names
+for i in $(seq 20); do ls /sys/class/block/sd* >/dev/null 2>&1 && break; sleep 1; done
+for d in /sys/class/block/sd?; do
+	[ -e "$d" ] || continue
+	n=${d##*/}
+	log "ufs $n: $(cat $d/device/model 2>/dev/null | tr -s ' ') $(( $(cat $d/size) / 2048 )) MiB, lun $(basename $(readlink -f $d/device))"
+	parts=""
+	for p in $d/${n}[0-9]*; do
+		[ -e "$p" ] && parts="$parts $(grep PARTNAME $p/uevent | cut -d= -f2)"
+	done
+	log "ufs $n partitions:$parts"
+done
+[ -e /sys/class/block/sda ] || log "no UFS disks"
+
+# Arch on userdata: the partition is found by GPT name and mounted only as ext4, so a
+# userdata that holds anything else (iOS, Android) is never touched
+ROOTDEV=""
+for p in /sys/class/block/sd*[0-9]; do
+	grep -qx PARTNAME=userdata $p/uevent 2>/dev/null && ROOTDEV=/dev/${p##*/} && break
+done
+mkdir -p /newroot
+if [ -z "$ROOTDEV" ]; then
+	log "no userdata partition; rescue mode"
+elif ! mount -t ext4 -o rw,noatime "$ROOTDEV" /newroot; then
+	log "userdata ($ROOTDEV) is not a mountable ext4; rescue mode"
+elif [ ! -x /newroot/usr/lib/systemd/systemd ]; then
+	log "userdata ($ROOTDEV) has no systemd; rescue mode"
+	umount /newroot
+else
+	log "switching to the root on $ROOTDEV ($(cat /newroot/etc/hostname 2>/dev/null))"
+	[ -c /dev/pmsg0 ] && echo "sunstone-m3 pmsg: switch_root to $ROOTDEV" > /dev/pmsg0
+	umount /sys/fs/pstore /sys/kernel/debug 2>/dev/null
+	for m in /dev /proc /sys /run; do mount --move $m /newroot$m; done
+	exec switch_root /newroot /usr/lib/systemd/systemd
+fi
+
+# rescue mode: M2's network, udhcpd and dropbear from the initramfs
+
 ip link set lo up
 ip addr add 192.168.7.2/24 dev "$IF"
 ip link set "$IF" up
@@ -71,20 +109,6 @@ log "dropbear listening on 192.168.7.2:22"
 
 # a root shell on the ACM port as the fallback channel (host: /dev/ttyACM0)
 setsid sh -c 'while :; do getty -n -l /bin/sh 115200 ttyGS0; sleep 1; done' &
-
-# UFS: wait for the SCSI disks (one per LUN), then list them and their GPT partition names
-for i in $(seq 20); do ls /sys/class/block/sd* >/dev/null 2>&1 && break; sleep 1; done
-for d in /sys/class/block/sd?; do
-	[ -e "$d" ] || continue
-	n=${d##*/}
-	log "ufs $n: $(cat $d/device/model 2>/dev/null | tr -s ' ') $(( $(cat $d/size) / 2048 )) MiB, lun $(basename $(readlink -f $d/device))"
-	parts=""
-	for p in $d/${n}[0-9]*; do
-		[ -e "$p" ] && parts="$parts $(grep PARTNAME $p/uevent | cut -d= -f2)"
-	done
-	log "ufs $n partitions:$parts"
-done
-[ -e /sys/class/block/sda ] || log "no UFS disks"
 
 t=0
 while [ $t -lt $GRACE ]; do
