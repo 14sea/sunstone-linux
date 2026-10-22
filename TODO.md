@@ -45,6 +45,15 @@
       `mode-normal = <0>`，普通 `reboot` 寫 0 回到 Linux，`reboot bootloader` 進 fastboot，panic 仍進 fastboot。
       刷機流程改用 `tools/remote/to-fastboot.sh`。
 
+## M6 遺留
+
+- [ ] GPU 的 zap shader（a615_zap.*）是從本機舊的提取副本拷到手機的；`sunstone-fw-install` 應從手機自己的 super/vendor
+      分區提取（lpextract + erofs），這樣才能重現。
+- [ ] GPU 最高 650 MHz：速度檔 148 下游可到 700 MHz，但 gpucc 的頻率表沒有 700。
+- [ ] boot-22（無 GPU 節點）有一次無日誌的啟動失敗，原因未明；netconsole 已就緒，再出現時能看到。
+- [ ] 顯示仍是 ABL 的 splash（simpledrm）：不能調亮度、不能熄屏；要做 MDSS/DPU/DSI + 面板驅動。
+- [ ] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。
+
 ## 以後
 
 - [ ] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換

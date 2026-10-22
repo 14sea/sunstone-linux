@@ -11,8 +11,9 @@ After=getty@tty7.service
 Type=simple
 # the logind session only becomes active on the foreground VT (tty1 holds the console)
 ExecStartPre=+/usr/bin/chvt 7
-# no GPU driver yet: let wlroots use Mesa's llvmpipe through EGL (GLES2 renderer, dmabuf for GTK4)
-# instead of its pixman fallback, under which phosh died with a Wayland protocol error
+# render on the Adreno (msm render node, freedreno) and scan out through simpledrm (ABL's splash);
+# software rendering stays allowed so a missing GPU still gives a (slow) desktop
+Environment=WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
 Environment=WLR_RENDERER_ALLOW_SOFTWARE=1
 ExecStart=/usr/bin/phosh-session
 User=1000
