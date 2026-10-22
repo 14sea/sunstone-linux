@@ -1,0 +1,6 @@
+[Unit]
+Description=Save "real time - RTC" after a clock synchronization
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rtc-offset save

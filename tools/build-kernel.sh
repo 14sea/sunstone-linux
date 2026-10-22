@@ -28,6 +28,7 @@ done
 [ -f "$KB/.config" ] || $M defconfig >/dev/null
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$KB" "$KB/.config" "$ROOT/kernel/platforms-off.config" "$ROOT/kernel/sunstone.config" >/dev/null
 "$SRC/scripts/config" --file "$KB/.config" --set-str INITRAMFS_SOURCE "$ROOT/out/initramfs-$STAGE.list"
+"$SRC/scripts/config" --file "$KB/.config" --set-str EXTRA_FIRMWARE_DIR "$ROOT/downloads/regdb"
 $M olddefconfig >/dev/null
 for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS USB_CONFIGFS_NCM PHY_QCOM_USB_SNPS_FEMTO_V2 QCOM_Q6V5_PAS ATH10K_SNOC; do
 	grep -q "^CONFIG_$o=y" "$KB/.config" || { echo "CONFIG_$o did not end up =y" >&2; exit 1; }

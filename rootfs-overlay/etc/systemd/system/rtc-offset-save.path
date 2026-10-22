@@ -1,0 +1,8 @@
+[Unit]
+Description=Save the RTC offset once systemd-timesyncd has synchronized the clock
+
+[Path]
+PathChanged=/run/systemd/timesync/synchronized
+
+[Install]
+WantedBy=multi-user.target
