@@ -26,6 +26,12 @@
 	vdd-1.3-rfa-supply = <&pm6125_l2>;
 	vdd-3.3-ch0-supply = <&pm6125_l23>;
 	vdd-3.3-ch1-supply = <&pm6125_l21>;
+	/*
+	 * The firmware reports 00:00:.. and ath10k would pick a random address every boot (new
+	 * DHCP lease each time). A fixed locally administered address instead of the phone's own
+	 * MAC from persist, which stays out of this repository.
+	 */
+	local-mac-address = [02 53 4e 00 00 10];
 	status = "okay";
 };
 

@@ -19,7 +19,7 @@ stty echo 2>/dev/null || true
 echo
 printf '%s\n' "$pass" | wpa_passphrase "$ssid" | grep -v '^\s*#psk=' >> "$CONF"
 chmod 600 "$CONF"
-systemctl enable wpa_supplicant@wlan0.service >/dev/null 2>&1 || true
+# started by udev when wlan0 appears (80-sunstone-wlan0.rules), not from multi-user.target
 systemctl restart wpa_supplicant@wlan0.service
 echo "added '$ssid'; waiting for an address on wlan0..."
 for i in $(seq 30); do

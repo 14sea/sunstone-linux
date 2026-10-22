@@ -1,0 +1,4 @@
+# sunstone: wlan0 appears only once the modem's WLAN firmware is up (seconds to minutes after
+# boot, or again after a modem restart), so start wpa_supplicant when it shows up instead of
+# from multi-user.target, where the 90 s device timeout made it give up (boot-17).
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="wpa_supplicant@wlan0.service"
