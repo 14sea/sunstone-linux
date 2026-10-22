@@ -10,3 +10,4 @@
 | 5b | 2026-10-22 | 重刷 userdata：塊最大 64 MiB 的稀疏鏡像 `c4ac4586e59dc872` | 數據 47 s 傳完，ABL 又沒有回應，40 分鐘後腳本 STOP。判斷：ABL 寫 FILL 塊時一次只寫一個塊，6 GiB 的零要寫很久（或者卡住了）；拆小塊沒有用。**以後不再讓 fastboot 寫大段填零**，用戶強制重啟 | `flash-5c.log`（測試主機） |
 | 6 | 2026-10-22 | `boot-m3rescue.img` `d8f167a37a842fb4`（`sunstone.rescue`）；救援環境裡 `gunzip | ssh dd of=/dev/sda19`（寫之前先核對 PARTNAME=userdata） | 8 GiB 用時 1177 s（7.0 MB/s，USB NCM 吞吐偏低，兩端 CPU 都空閒，待查）；回讀 sha256 `52c306a02aa6929a` 和鏡像一致 | — |
 | 7 | 2026-10-22 | `boot-m3.img` `507ea5a05ed805fd` | **M3 通過：Arch Linux ARM 在主線 7.3 上啟動**。systemd `running`，沒有失敗的單元，啟動用時 8.2 s（內核 0.8 s）；networkd 接管 usb0，sshd 用密鑰登錄 root。在線 `resize2fs` 到 102 G。經測試主機的 ssh 反向 SOCKS（`tools/remote/tunnel.sh`）上網，`pacman -Syu` 需要 `--disable-sandbox`（內核沒開 Landlock，已加入配置）。手機沒有 RTC，開機時間是 1970 年，由 tunnel.sh 對時 | — |
+| 8 | 2026-10-22 | `pacman -Syu`（76 個包，systemd 262.1）之後；`boot-m3.img` `353ae5dc378a69b9`（加了 Landlock） | 升級後的系統正常啟動：`running`，沒有失敗的單元，4.7 s；pacman 的沙箱可用（LSM `capability,landlock`） | — |
