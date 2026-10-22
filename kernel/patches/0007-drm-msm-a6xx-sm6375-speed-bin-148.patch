@@ -1,0 +1,18 @@
+drm/msm/a6xx: add speed bin 148 for SM6375 (a619_holi)
+
+sunstone-linux local patch. sunstone's fuse reads speed bin 148 (boot-25: "missing support for
+speed-bin: 148"); the downstream kgsl table gives that bin 700 MHz at most. Without the entry no
+OPP is filtered out and the GMU-wrapper GPU starts at its fastest OPP (900 MHz, turbo): the first
+GPU use reset the phone (boot-21, boot-23).
+
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -857,6 +857,8 @@
+ 			{ 0,   0 },
+ 			{ 190, 1 },
+ 			{ 177, 2 },
++			/* sunstone (SM4375): the downstream table caps bin 148 at 700 MHz */
++			{ 148, 3 },
+ 		),
+ 	}, {
+ 		.chip_ids = ADRENO_CHIP_IDS(0x06010900),

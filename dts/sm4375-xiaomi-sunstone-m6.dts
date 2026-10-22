@@ -6,7 +6,7 @@
  * sm6115's a610), with values from the downstream kgsl node: registers 0x5900000 / cx 0x599e000 /
  * dbgc 0x5961000, GMU wrapper 0x596a000, IRQ SPI 177, GX rail = RPM pm6125_s8 levels (rpmpd VDDGX).
  * Speed bins from the qfprom fuse at 0x6015 (downstream gpu_speed_bin): bins 0 and 190 run up to
- * 900 MHz, 177 up to 840 MHz; 650 MHz and below are common to every bin. The zap shader is the
+ * 900 MHz, 177 up to 840 MHz, 148 (this phone) up to 700 MHz; 650 MHz and below are common to all. The zap shader is the
  * phone's own a615_zap (vendor partition, not in this repository).
  * The display is still ABL's splash on simpledrm, so the msm driver runs the GPU as a render-only
  * DRM device (msm.separate_gpu_kms=1).
@@ -60,7 +60,7 @@
 
 			interrupts = <GIC_SPI 177 IRQ_TYPE_LEVEL_HIGH>;
 
-			iommus = <&adreno_smmu 0 1>;
+			iommus = <&adreno_smmu 0>;
 			operating-points-v2 = <&gpu_opp_table>;
 			power-domains = <&rpmpd SM6375_VDDGX>;
 			qcom,gmu = <&gmu_wrapper>;
@@ -74,7 +74,11 @@
 				firmware-name = "qcom/sm4375/xiaomi/sunstone/a615_zap.mdt";
 			};
 
-			/* opp-supported-hw: BIT(n) for the catalog's speed bins {0: 0, 190: 1, 177: 2} */
+			/*
+			 * opp-supported-hw: BIT(n) for the catalog's speed bins {0: 0, 190: 1, 177: 2, 148: 3}
+			 * (148 from kernel/patches/0007; sunstone is a bin-148 part, downstream max 700 MHz,
+			 * which gpucc cannot make: 650 MHz is its top here)
+			 */
 			gpu_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
@@ -99,25 +103,25 @@
 				opp-650000000 {
 					opp-hz = /bits/ 64 <650000000>;
 					required-opps = <&rpmpd_opp_nom>;
-					opp-supported-hw = <0xff>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-490000000 {
 					opp-hz = /bits/ 64 <490000000>;
 					required-opps = <&rpmpd_opp_svs_plus>;
-					opp-supported-hw = <0xff>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-390000000 {
 					opp-hz = /bits/ 64 <390000000>;
 					required-opps = <&rpmpd_opp_svs>;
-					opp-supported-hw = <0xff>;
+					opp-supported-hw = <0xf>;
 				};
 
 				opp-266000000 {
 					opp-hz = /bits/ 64 <266000000>;
 					required-opps = <&rpmpd_opp_low_svs>;
-					opp-supported-hw = <0xff>;
+					opp-supported-hw = <0xf>;
 				};
 			};
 		};
