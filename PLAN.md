@@ -54,7 +54,13 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 ### M0 環境
 - 拉 Linux 7.3 源碼；確認 `arch/arm64/boot/dts/qcom/sm6375.dtsi` 的現狀：已有 CPU、cpufreq、RPM 電源域、
   SMMU、IPCC、GLINK、ADSP/CDSP/MPSS PAS、QUP/GENI、SPMI、USB HS、SDHCI、tsens、WCN3990；
-  缺 UFS、MDSS/DPU/DSI、dispcc、GPU 節點（以 7.3 為準，重新核對）。
+  缺 UFS、MDSS/DPU/DSI、dispcc、GPU 節點。
+  **7.3 實測（2026-10-22）**：`sm6375.dtsi` 和上面一致（2482 行，唯一的板級 DTS 是 Sony
+  `sm6375-sony-xperia-murray-pdx225.dts`）。驅動側已有：`dispcc-sm6375`、`gcc-sm6375`、`gpucc-sm6375`、
+  `pinctrl-sm6375`、DPU catalog `dpu_6_9_sm6375.h`、Adreno a619_holi（chip id `0x06010901`），以及
+  `pm6125`/`pmk8350`/`pmr735a` 的 dtsi。缺口：**沒有 sm6375 的 interconnect 驅動**（帶寬投票要靠
+  bootloader 留下的狀態，或者先不接 icc）；**`phy-qcom-qmp-ufs` 沒有 sm6375 的條目**（只有同代
+  sm6115 的表，M3 要對照下游 DT 的 UFS PHY 補一個）。
 - 從 `ios-sunstone` 拷 shim（去掉 `gpu.c`），加上構建和刷機腳本（沿用 `tools-host/chain-boot.sh` 的流程）。
 - 完成標準：本機能構建出 `boot_a` 鏡像，內含 shim + 一個測試 payload。
 
