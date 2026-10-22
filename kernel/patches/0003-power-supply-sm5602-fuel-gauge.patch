@@ -3,7 +3,6 @@ power: supply: add a read-only Silicon Mitus SM5602 fuel gauge driver
 sunstone-linux local patch. Register map and conversions from the Xiaomi vendor sm5602_fg.c, as
 verified in ios-sunstone (research/sm5602/NOTES.md) against the downstream kernel's readings.
 
-diff --color -ruN a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
 --- a/drivers/power/supply/Kconfig
 +++ b/drivers/power/supply/Kconfig
 @@ -290,6 +290,13 @@
@@ -20,7 +19,6 @@ diff --color -ruN a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
  config CHARGER_SBS
  	tristate "SBS Compliant charger"
  	depends on I2C
-diff --color -ruN a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
 --- a/drivers/power/supply/Makefile
 +++ b/drivers/power/supply/Makefile
 @@ -47,6 +47,7 @@
@@ -31,10 +29,9 @@ diff --color -ruN a/drivers/power/supply/Makefile b/drivers/power/supply/Makefil
  obj-$(CONFIG_CHARGER_SBS)	+= sbs-charger.o
  obj-$(CONFIG_MANAGER_SBS)	+= sbs-manager.o
  obj-$(CONFIG_BATTERY_BQ27XXX)	+= bq27xxx_battery.o
-diff --color -ruN a/drivers/power/supply/sm5602_fuel_gauge.c b/drivers/power/supply/sm5602_fuel_gauge.c
 --- a/drivers/power/supply/sm5602_fuel_gauge.c
 +++ b/drivers/power/supply/sm5602_fuel_gauge.c
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,264 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Silicon Mitus SM5602 fuel gauge, read-only.
@@ -122,6 +119,14 @@ diff --color -ruN a/drivers/power/supply/sm5602_fuel_gauge.c b/drivers/power/sup
 +		return POWER_SUPPLY_STATUS_UNKNOWN;
 +	/* psy from the caller: get_property can run before devm_power_supply_register returns */
 +	if (power_supply_am_i_supplied(psy) > 0) {
++		union power_supply_propval chg;
++
++		/* the charger knows best whether it is charging or done (termination) */
++		if (!power_supply_get_property_from_supplier(psy, POWER_SUPPLY_PROP_STATUS, &chg) &&
++		    (chg.intval == POWER_SUPPLY_STATUS_CHARGING ||
++		     chg.intval == POWER_SUPPLY_STATUS_FULL ||
++		     chg.intval == POWER_SUPPLY_STATUS_NOT_CHARGING))
++			return chg.intval;
 +		if (!(soc & SM5602_SIGN) && ((soc >> 8) & 0x7f) >= 100)
 +			return POWER_SUPPLY_STATUS_FULL;
 +		return sm5602_current_ua(sm, cur) > 0 ? POWER_SUPPLY_STATUS_CHARGING :
