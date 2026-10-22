@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Xiaomi Redmi Note 12 5G (sunstone), SM4375 "blair": milestone 4 tree = M3 + PMICs and keys.
+ *
+ * The board XO frequency (left to the board by sm6375.dtsi) was missing until M4: every clock
+ * rate read 0, which broke cpufreq-hw (no OPPs) and the UFS ref clock setting.
+ * PMICs as on the downstream DT and Sony's pdx225: PM6125 (SID 0/1), PMK8350 on SID 6, PMR735A.
+ * Keys (downstream gpio-keys and qpnp-power-on): power = PM6125 PON KPDPWR, volume down = PM6125
+ * PON RESIN, volume up = PMR735A GPIO1 (active low) -- the reverse of pdx225's volume keys.
+ * RTC: PMK8350 (read-only for Linux; the offset to real time is kept in userspace).
+ */
+#define PMK8350_SID 6
+
+#include "sm4375-xiaomi-sunstone-m3.dts"
+#include "pm6125.dtsi"
+#include "pmk8350.dtsi"
+#include "pmr735a.dtsi"
+
+/* the PM6125 PON is the one in use (downstream disables PMK8350's), and the labels collide */
+/delete-node/ &pmk8350_pon;
+
+/ {
+	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 4";
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+		pinctrl-0 = <&vol_up_n>;
+		pinctrl-names = "default";
+
+		key-volume-up {
+			label = "Volume Up";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&pmr735a_gpios 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+			linux,can-disable;
+			wakeup-source;
+		};
+	};
+};
+
+&xo_board_clk {
+	clock-frequency = <19200000>;
+};
+
+&pon_pwrkey {
+	status = "okay";
+};
+
+&pon_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&pmr735a_gpios {
+	vol_up_n: vol-up-n-state {
+		pins = "gpio1";
+		function = "normal";
+		power-source = <1>;
+		bias-pull-up;
+		input-enable;
+	};
+};
+
+&pmk8350_rtc {
+	status = "okay";
+};
