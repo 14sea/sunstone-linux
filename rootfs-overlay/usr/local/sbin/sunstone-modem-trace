@@ -1,0 +1,29 @@
+#!/bin/sh
+# sunstone (debug, M5 modem stall): for the first 200 s of a boot, every 5 s record the modem
+# state, the QMI services registered on QRTR and new remoteproc/ath10k kernel lines.
+# Output: /var/log/modem-trace/<boot number>.log (boot number = count of earlier traces).
+D=/var/log/modem-trace
+mkdir -p $D
+N=$(ls $D | wc -l)
+OUT=$D/$(printf %03d $N).log
+{
+	echo "# $(uname -v) $(cat /proc/device-tree/model)"
+	last=""
+	t=0
+	while [ $t -le 200 ]; do
+		up=$(cut -d' ' -f1 /proc/uptime)
+		st=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)
+		svcs=$(qrtr-lookup 2>/dev/null | awk 'NR>1 {print $1"."$3}' | sort -u | tr '\n' ' ')
+		if [ "$svcs" != "$last" ]; then
+			echo "$up state=$st services: $svcs"
+			last=$svcs
+		else
+			echo "$up state=$st (no change, $(echo $svcs | wc -w) services)"
+		fi
+		sleep 5; t=$((t + 5))
+	done
+	echo "# kernel"
+	dmesg | grep -E 'remoteproc|q6v5|ath10k|qrtr|rmtfs' 
+	echo "# tqftpserv / rmtfs"
+	journalctl -b -o short-monotonic --no-pager -u tqftpserv -u rmtfs-dir 2>/dev/null | grep -v truncated
+} > $OUT 2>&1

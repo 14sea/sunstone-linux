@@ -65,3 +65,13 @@
 		};
 	};
 };
+
+/*
+ * The shim sets the PMIC PON reason to "bootloader" on every boot, so a crash before Linux takes
+ * over lands in fastboot. A normal `reboot` now writes reason 0 and comes back into Linux;
+ * `reboot bootloader` (mode-bootloader in pm6125.dtsi) still goes to fastboot, and a panic
+ * (emergency restart, no reboot notifiers) keeps the shim's value.
+ */
+&pm6125_pon {
+	mode-normal = <0x0>;
+};

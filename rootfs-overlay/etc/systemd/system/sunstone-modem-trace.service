@@ -1,0 +1,11 @@
+[Unit]
+Description=sunstone debug: trace the modem and QMI services during boot
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/sunstone-modem-trace
+
+[Install]
+WantedBy=sysinit.target
