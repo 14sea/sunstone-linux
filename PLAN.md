@@ -95,6 +95,15 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 - 電池：SM5602 電量計（主線沒有驅動，要寫；寄存器知識來自 `SweetBattery`），SC8989X 充電器
   （先試主線 `bq25890` 驅動）。
 - 完成標準：屏幕上有登錄提示，按鍵和觸摸有 evdev 事件，`/sys/class/power_supply` 有數據。
+- **2026-10-22 boot-15 達成。** 和原計劃不同的地方：
+  - 觸摸不需要 `i2c-gpio`：`i2c-qcom-geni` 會自動對 GSI-only 的 SE 使用 GPI DMA。這顆 FT5452 固件只有讀完 10 觸點整幀
+    才會推進到下一幀（補丁 0002），芯片座標是像素的 1.25 倍（1350×3000）。
+  - 充電器是 SC89890H（PN 4），主線 bq25890 驅動加上 ID 和 fwnode 就能用（補丁 0004），不復位、沿用現有設置。
+  - SM5602 寫了一個只讀驅動（補丁 0003），寄存器和換算來自 ios-sunstone 的研究結果。
+  - 板級 DTS 原來漏了 `xo_board_clk` 的 19.2 MHz，補上後 cpufreq 才正常（大核 2016 MHz 需要額外的 OPP）。
+  - RTC 只讀，真實時間的偏移由 `rtc-offset` 服務保存（`rootfs-overlay/`）。
+- 遺留：CPUidle PSCI 報錯（`failed to create CPU PM domains`、`CPU 0 failed to PSCI idle`）；USB NCM 只有約 7 MB/s；
+  充電控制（輸入限流、充電電流）還沒有接 USB 類型檢測；溫度管理只靠 tsens。
 
 ### M5 Wi-Fi
 - MPSS PAS（firmware 在 `modem_a`），rmtfs、pd-mapper、tqftpserv（發行版裡都有包），WLAN SMMU stream `0x80`，
