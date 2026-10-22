@@ -18,3 +18,4 @@
 | 13 | 2026-10-22 | 補丁 0004：PN 4 = SC89890H 按 BQ25890 處理；`c5fafc024f02a3fa` | 充電器正常：USB 在線，Full，VBUS，500 mA 輸入限流，CV 4.432 V。電量計仍然推遲：bq25890 註冊電源時沒有帶 fwnode，`power-supplies` 匹配不到 | — |
 | 14 | 2026-10-22 | 補丁 0004 加上 `psy_cfg.fwnode`；`0a792d95e2291e7e` | **電池正常**：99 %，4.409 V（OCV 4.410 V），24.0 °C（電池 NTC），循環 83 次，FCC 4859 mAh，剩餘 4819 mAh（和 iOS、recovery 一致）。狀態顯示 Not charging（99 % 且電流 0） | — |
 | 15 | 2026-10-22 | 電池狀態跟隨充電器；`8b268ffe1c66d62f` | 電池和充電器都顯示 Full。觸摸軸範圍 1349/2999 生效。**M4 通過**：屏幕上有 tty1 登錄提示，按鍵和觸摸有 evdev 事件，`/sys/class/power_supply` 有數據 | — |
+| 16 | 2026-10-22 | M5：MPSS PAS + WCN3988（ath10k snoc），PD mapper sm6375（補丁 0005），Wi-Fi 相關驅動全部編進內核（含 RFKILL）；固件由 `sunstone-fw-install` 從 modem_a 只讀拷出，rmtfs 目錄模式使用 EFS 副本，`tqftpserv` 在手機上編譯；`boot-m5.img` `e9611a0ad3d30f79` | **第一次啟動就到了 wlan0**：modem up（6.8 s），QMI chip_id 0x150、board_id 0xff，固件 WLAN.HL.3.3.2.c5，HTT 3.104 / WMI，`wlan0` 出現；掃描到 2.4/5 GHz 的網絡（最強 -35 dBm）。MAC 無效，驅動用隨機地址；監管域未設（00） | — |
