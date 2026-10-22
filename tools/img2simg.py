@@ -5,7 +5,8 @@
 
 Data extents (SEEK_DATA/SEEK_HOLE) become RAW chunks; holes become FILL chunks of zeros, not
 DONT_CARE, so the bootloader zeroes them and nothing of the partition's old contents shows
-through inside the image's range.
+through inside the image's range. Chunks are capped at 64 MiB: sunstone's ABL stopped answering
+after a sparse image with a single 6 GiB FILL chunk (chunk_sz * blk_sz > 4 GiB).
 """
 import argparse
 import os
@@ -13,6 +14,7 @@ import struct
 
 MAGIC = 0xed26ff3a
 RAW, FILL = 0xcac1, 0xcac2
+MAX_CHUNK = 64 << 20
 FILE_HDR = struct.Struct('<IHHHHIIII')
 CHUNK_HDR = struct.Struct('<HHII')
 
@@ -63,6 +65,8 @@ def main():
         pos = e
     if pos < size // bs:
         chunks.append((False, pos, size // bs))
+    step = MAX_CHUNK // bs
+    chunks = [(d, b, min(b + step, e)) for d, s, e in chunks for b in range(s, e, step)]
 
     with open(a.out, 'wb') as out:
         out.write(FILE_HDR.pack(MAGIC, 1, 0, FILE_HDR.size, CHUNK_HDR.size, bs, size // bs, len(chunks), 0))
