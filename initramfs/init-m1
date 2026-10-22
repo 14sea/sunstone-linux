@@ -1,0 +1,28 @@
+#!/bin/busybox sh
+# sunstone-linux milestone 1: prove we are in Linux, leave evidence in pstore, reboot.
+# The shim set the PMIC reboot reason to fastboot, so `reboot -f` lands in fastboot, where the
+# test host's watcher sends the phone to the crDroid recovery and reads /sys/fs/pstore.
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /sys/fs/pstore && mount -t pstore pstore /sys/fs/pstore 2>/dev/null
+
+log() { echo "sunstone-m1: $*" > /dev/kmsg; }
+
+log "init running: $(uname -a)"
+log "model: $(cat /sys/firmware/devicetree/base/model 2>/dev/null)"
+log "cmdline: $(cat /proc/cmdline)"
+log "cpus online: $(cat /sys/devices/system/cpu/online)"
+log "$(grep -E 'MemTotal|MemFree' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+log "framebuffers: $(ls /dev/fb* /dev/dri 2>/dev/null | tr '\n' ' ')"
+log "pstore from the previous boot: $(ls /sys/fs/pstore 2>/dev/null | tr '\n' ' ')"
+[ -c /dev/pmsg0 ] && echo "sunstone-m1 pmsg: init reached, $(uname -r)" > /dev/pmsg0 && log "pmsg written"
+
+for t in 10 20 30 40 50 60; do
+	sleep 10
+	log "alive ${t}s, uptime $(cut -d' ' -f1 /proc/uptime)"
+done
+log "rebooting (to fastboot, then the recovery reads pstore)"
+sync
+reboot -f

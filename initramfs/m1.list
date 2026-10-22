@@ -1,0 +1,12 @@
+# gen_init_cpio list (usr/gen_init_cpio): no root needed for device nodes
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+nod /dev/kmsg 0644 0 0 c 1 11
+dir /proc 0755 0 0
+dir /sys 0755 0 0
+dir /bin 0755 0 0
+dir /tmp 1777 0 0
+dir /root 0700 0 0
+file /bin/busybox @BUSYBOX@ 0755 0 0
+slink /bin/sh busybox 0777 0 0
+file /init @INIT@ 0755 0 0
