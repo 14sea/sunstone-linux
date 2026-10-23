@@ -112,6 +112,11 @@
       1–4 次（每次 65 s，Wi-Fi 最晚 284 s），只在初始化階段；每次 modem 重啟後都有 QRTR ns 的
       `failed to announce new service` / `failed while handling packet from 0:-2`，可能是線索。
       服務器上的影響：開機後 Wi-Fi 最多晚 5 分鐘，運行中穩定。
+      代碼線索：這兩條錯誤來自 net/qrtr/ns.c。modem 重啟後發 HELLO，`announce_servers()` 把本機服務（內核 PD mapper、
+      rmtfs、tqftpserv）逐個通告給它，有一個發送失敗（且不是 -ENODEV）就返回，後面的服務不再通告 → modem 等不到
+      PD mapper/rmtfs，65 s 後自己的看門狗觸發。但第一次啟動時沒有這條錯誤也會卡，要對比成功和卡住時的 QRTR 事件。
+      下一步（穩定性測試之後）：調試內核開 `FTRACE` + qrtr 事件（或在 ns.c 打印發送的返回值和目標），不重啟手機、
+      用 `echo stop/start > /sys/class/remoteproc/remoteproc0/state` 反覆重現（`tools/modem-cycles.sh` 的思路）。
 
 ## 以後
 
