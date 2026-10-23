@@ -1,0 +1,11 @@
+#!/bin/sh
+# sunstone soak test: load all CPUs for DURATION seconds (default 600) with busy loops, so the
+# health log shows the temperatures and the throttling under full load. Not enabled by default:
+#   systemctl enable --now sunstone-stress.timer     (10 min after boot, then every 6 h)
+D=${1:-600}
+n=$(nproc)
+logger -t sunstone-stress "loading $n CPUs for ${D}s"
+i=0
+while [ $i -lt "$n" ]; do timeout "$D" sh -c 'while :; do :; done' & i=$((i + 1)); done
+wait
+logger -t sunstone-stress "done"

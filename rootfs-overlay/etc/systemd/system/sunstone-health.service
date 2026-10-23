@@ -1,0 +1,6 @@
+[Unit]
+Description=sunstone health line (/var/log/sunstone-health.log)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sunstone-health

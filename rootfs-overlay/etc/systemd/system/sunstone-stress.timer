@@ -1,0 +1,9 @@
+[Unit]
+Description=sunstone soak test load, 10 min after boot and every 6 h (enable by hand)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+
+[Install]
+WantedBy=timers.target

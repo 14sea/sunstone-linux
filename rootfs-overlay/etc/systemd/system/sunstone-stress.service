@@ -1,0 +1,6 @@
+[Unit]
+Description=sunstone soak test: all CPUs busy for 10 minutes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sunstone-stress 600

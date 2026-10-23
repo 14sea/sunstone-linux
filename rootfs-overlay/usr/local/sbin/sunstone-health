@@ -1,0 +1,38 @@
+#!/bin/sh
+# sunstone: one line of health data per run (sunstone-health.timer, every minute) appended to
+# /var/log/sunstone-health.log: boot, uptime, load, memory, temperatures, battery and charger,
+# CPU frequency caps (throttling), Wi-Fi and gateway reachability, modem, kernel errors, failed units.
+LOG=/var/log/sunstone-health.log
+zone() { # max temperature in C of the zones whose type matches one of the patterns
+	m=-999
+	for z in /sys/class/thermal/thermal_zone*; do
+		type=$(cat "$z/type")
+		for p in "$@"; do
+			case $type in $p) t=$(cat "$z/temp" 2>/dev/null) && [ $((t / 1000)) -gt $m ] && m=$((t / 1000)) ;; esac
+		done
+	done
+	echo $m
+}
+B=/sys/class/power_supply/sm5602-battery
+C=/sys/class/power_supply/bq25890-charger-0
+P0=/sys/devices/system/cpu/cpufreq/policy0
+P6=/sys/devices/system/cpu/cpufreq/policy6
+gw=$(ip route | awk '/^default .*wlan0/ { print $3; exit }')
+if [ -n "$gw" ]; then
+	rtt=$(ping -c 1 -W 2 "$gw" 2>/dev/null | sed -n 's/.*time=\([0-9.]*\) ms.*/\1/p')
+	rtt=${rtt:-fail}
+else
+	rtt=nogw
+fi
+sig=$(iw dev wlan0 link 2>/dev/null | awk '/signal:/ { print $2 }')
+printf '%s boot=%s up=%s load=%s memavail_mb=%s cpu=%s gpu=%s batt=%s chg=%s pmic=%s cap=%s vbat_mv=%s ibat_ma=%s chg_status=%s cv=%s f0max=%s f6max=%s f6cur=%s wlan=%s sig=%s gw_rtt=%s modem=%s kerr=%s failed=%s\n' \
+	"$(date -Is)" "$(cut -c1-8 /proc/sys/kernel/random/boot_id)" "$(cut -d. -f1 /proc/uptime)" \
+	"$(cut -d' ' -f1 /proc/loadavg)" "$(awk '/MemAvailable/ { print int($2 / 1024) }' /proc/meminfo)" \
+	"$(zone 'cpu[0-9]-thermal' 'cluster*')" "$(zone 'gpuss*')" "$(($(cat $B/temp 2>/dev/null || echo 0) / 10))" \
+	"$(zone bq25890-charger-0)" "$(zone pm6125-thermal pmr735a-thermal)" \
+	"$(cat $B/capacity 2>/dev/null)" "$(($(cat $B/voltage_now 2>/dev/null || echo 0) / 1000))" \
+	"$(($(cat $B/current_now 2>/dev/null || echo 0) / 1000))" "$(cat $C/status 2>/dev/null)" \
+	"$(cat $C/constant_charge_voltage 2>/dev/null)" "$(cat $P0/scaling_max_freq)" "$(cat $P6/scaling_max_freq)" \
+	"$(cat $P6/scaling_cur_freq)" "$(cat /sys/class/net/wlan0/operstate 2>/dev/null || echo none)" "${sig:-none}" \
+	"$rtt" "$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)" \
+	"$(dmesg -l err,crit,alert,emerg 2>/dev/null | wc -l)" "$(systemctl --failed --no-legend 2>/dev/null | wc -l)" >> "$LOG"
