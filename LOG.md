@@ -36,3 +36,19 @@
 | 37 | 2026-10-22 | 二分：DSI + PHY 開，面板節點禁用（m6g）；`f223fd363743bcdd` | 正常 → 崩潰需要面板驅動參與 | — |
 | 38 | 2026-10-22 | m6d，面板改成模塊（`=m`），開機後手動 `insmod` 再重啟 phosh；`8d1505ae7aa3b8fd` | 不崩潰；DSI-1 1080x2400@120 modeset 成功、DCS 命令可用，但屏幕全黑，之後綠黑條紋（PPS/壓縮命令挪到退出睡眠之前） | — |
 | — | 2026-10-23 | boot-38 上換模塊（不刷機）：面板驅動改發完整的下游上電序列（含三星 DDIC 的 `9D 01` 壓縮開啟和 `9E` PPS、`60 01` 120 Hz 等），DSC 切片高度 40（下游 PPS 表是 40，DT 屬性寫的 20） | **屏幕顯示正常**（用户確認）：Phosh 經 msm 的 DSI-1 顯示，主機算出的 PPS 和下游表一致，沒有 underrun/DSI 錯誤 | — |
+| — | 2026-10-23 | 手機夜裏被 gsd-power 自動休眠（s2idle）兩次，USB 和 Wi-Fi 都斷；第二次按電源鍵沒喚醒，強制重啟 | 加 `sleep.conf.d/sunstone.conf` 關掉休眠（logind `CanSuspend=no`）。第一次休眠按電源鍵能恢復，Wi-Fi 重連 | netconsole.log |
+| 39 | 2026-10-23 | 面板編進內核（`=y`）+ 調試參數 `attach_delay_ms=20000`（probe 後隔 20 s 從 workqueue attach DSI）；`cbf32019c078d6dd` | 正常：21.5 s 綁定 msm + GPU，上電序列返回 0。開機時 systemd-backlight 寫亮度報 EINVAL（面板還沒上電） | netconsole.log |
+| 40 | 2026-10-23 | `attach_delay_ms=3000`；`878e67ba5821d5ec` | 正常：3.5 s 綁定，phoc 直接用 msm（card1）| netconsole.log |
+| 41 | 2026-10-23 | 延遲 60 s，由 initramfs 在 netconsole 起來後觸發 attach（`attach_now`，workqueue，4.9 s）；`71ddb33c98b8313a` | 正常；initramfs 裏沒有 a630_sqe.fw，GPU 加載乾淨地失敗。另：故意 panic 和普通 reboot 之後 pstore 都是空的 | netconsole.log |
+| 42 | 2026-10-23 | `attach_delay_ms=1`（0.365 s，workqueue）；`1f8c1f91522132a8` | **正常**，上電序列 0 → 時間點不是原因，在 probe 裏同步 attach 才是 | journal |
+| 43 | 2026-10-23 | 同上 + ramoops 開 ECC（16）、加 dmesg 區（record-size 128 KiB）；`85ef91b77826e305` | 正常。普通 reboot 後有 console 記錄，但 ECC 報 411 個塊無法糾正：DDR 在復位期間衰減嚴重，記錄不可讀 | — |
+| 44 | 2026-10-23 | 延遲 600 s 不 attach；initramfs 在 5 s 改延遲為 0 並 unbind/bind 面板（probe 裏同步 attach）；`381901b8e42daf2c` | **正常** → probe 裏同步 attach 本身沒問題，要在內核初始化期間才出事 | netconsole.log |
+| 45 | 2026-10-23 | 調試內核（lockdep、hung task 20 s、soft lockup、`panic=0`、TER16x32 字體），延遲 0（initcall 期間 probe 裏同步 attach）；`a2e0ea8385e7510c` | **起不來**：屏幕最後一條是 `Demotion targets for Node 0: null`，然後花屏、黑屏（msm 接管後控制台不可見），沒有 USB；用户強制重啟 | 用户觀察 |
+| 46 | 2026-10-23 | 刷回 boot-43 的鏡像 | 正常 | — |
+| 47 | 2026-10-23 | 調試內核，延遲 0，msm 本地調試開關 `sunstone_keepfb=1`（不移除 simpledrm、不建 fbdev 客户端）；`2fca91fb9b2b04c0` | **正常** | journal |
+| 49 | 2026-10-23 | `keepfb=2`（移除 simpledrm，不建 fbdev 客户端）；`83eccd377d3b5322` | **正常** | journal |
+| 51 | 2026-10-23 | `keepfb=3`（保留 simpledrm，建 fbdev → fb1，做 modeset，fbcon 不接管）；`7c05824c3c025d89` | **正常**，但 `dsi_err_worker: status=4`（DSI FIFO 錯誤），上電序列用了 1.3 s 才返回 0 | journal |
+| 53 | 2026-10-23 | 調試內核，延遲 0，`FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER=y`；`e0ee071d8b220c62` | 能開機，但 FIFO 錯誤後上電序列 `-110`（`d0 08` 超時），面板沒初始化；Phosh 的 modeset 不會重新 prepare。lockdep 另報：PSCI cpuidle 電源域 genpd raw/普通 spinlock 嵌套；qcom_scm probe 裏 shm bridge 在原子上下文調 SCM | journal |
+| 55 | 2026-10-23 | 正常內核（無 lockdep），延遲 0，延遲接管；`067bea68b631ca5b` | 能開機：1.147 s 兩次 FIFO 錯誤，之後**所有** DSI 命令 `-110`（含後來的亮度命令），屏幕應為黑 → 不是 lockdep 造成的 | journal |
+| 57 | 2026-10-23 | 正常內核，延遲 0，面板驅動 `PROBE_PREFER_ASYNCHRONOUS`，不開延遲接管；`c84936a040421fca` | **起不來**：4 分鐘無 USB、沒進 fastboot（`panic=20` 沒觸發 → 卡死不是 panic）；用户強制重啟 | — |
+| 58 | 2026-10-23 | 刷回 boot-43 的鏡像（延遲 1 ms） | 正常 | — |
