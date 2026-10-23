@@ -64,3 +64,4 @@
 | 73、75 | 2026-10-23 | 同一個鏡像再跑兩次 | 都正常 → 3/3（加 resets 之前同樣條件 5 次卡 4 次） | journal |
 | 77、79、81 | 2026-10-23 | **正式版**：內核 `sunstone` 分支（面板驅動是主線寫法，probe 裏同步 attach，無調試代碼），面板 `=y`，DTS 帶 MDSS 復位，無調試啟動參數；`42edf483cb82308d` | 3/3 正常：msm 0.65–0.98 s 綁定，fb0、`/init`、Phosh 正常，無 SMMU/DSI 錯誤；只剩 `dsi0_phy_pll_out_*clk already unprepared` 告警。用户確認屏幕正常 | journal |
 | 83、85 | 2026-10-23 | 正式版鏡像，用修好的 `tools/run-exp.sh` 跑（刷寫確認、boot_id + 內核版本校驗、成功後撤回恢復） | 正常；boot-83 時腳本的版本提取取到了 Image 裏不帶構建號的 banner，報「不是這個鏡像的內核」，修正後 boot-85 通過 | — |
+| 87 | 2026-10-23 | 面板驅動：背光和面板操作共用一把鎖，面板關着時亮度只緩存、讀回緩存值，`mode_flags` 在所有路徑恢復原值；display-off 失敗只記錄不返回（否則 `panel->enabled` 不清，下次 enable 被跳過）。補丁 0008 更新；`ff666c2b31650812` | 開機時 systemd-backlight 不再報 EINVAL；亮度讀寫正常（`actual_brightness` 經 DSI 讀回）；經 Phosh 的 `PowerSaveMode` 3 → 0 做一次完整熄屏/亮屏：關屏時寫亮度成功，亮屏後面板重新上電、讀回 300，無錯誤 | — |

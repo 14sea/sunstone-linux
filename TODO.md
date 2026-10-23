@@ -68,10 +68,8 @@
 - [ ] 面板 prepare 失敗後沒有恢復：Phosh 之後的 modeset 不會重新 prepare，屏幕一直黑。`m17_prepare()` 失敗時
       已經會復位、斷電；要查的是 DRM 的 active 狀態是否讓後續提交不再走完整的 disable/prepare/enable。先用一次
       完整的關閉再開啟顯示的提交驗證，不在 enable 裏補 prepare。
-- [ ] 背光回調的 bug：`m17_bl_update_status`/`get_brightness` 清掉 `MIPI_DSI_MODE_LPM` 後，出錯直接返回，沒有恢復；
-      應保存原 flags 並在所有出口恢復，處理和面板上下電的並發；面板沒上電時更新亮度只緩存不發 DSI，讀亮度也要處理。
-      開機時 systemd-backlight 恢復亮度報 EINVAL（面板還沒上電）。gsd-power 的 `'max > min'` 斷言另查它讀的是哪個
-      背光設備和數值，不先認定是同一個原因。
+- [x] 背光回調的 bug（boot-87 修好）：鎖 + `prepared`，面板關着時只緩存，`mode_flags` 恢復原值；display-off 失敗不再
+      讓 `panel->enabled` 留着。開機時 systemd-backlight 的 EINVAL 也隨之消失。gsd-power 的 `'max > min'` 斷言另查。
 - [ ] `Lucid PLL latch failed`：每次開機兩次，都是 `dpu_kms_init` 經 OPP 設 MDP 時鐘時 dispcc 的 `disp_cc_pll0` 改頻
       （1120 MHz、747 MHz，parent 19.2 MHz，`PLL_MODE` 0x9000004/5）。失敗分支返回 -EINVAL 且沒清 latch 位；
       `dev_pm_opp_set_rate` 的失敗也沒人檢查，MDP 實際跑在什麼頻率要確認。對照下游 dispcc 的 PLL 配置
