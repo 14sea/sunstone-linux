@@ -5,9 +5,11 @@ BRANCH_HALT but no .halt_reg, so the status was read from offset 0: "disp_cc_sle
 'off'", the critical enable failed and dispcc probe failed with -EBUSY (boot-33). As on
 dispcc-sm6115, the halt register is the enable register.
 
+diff --git a/drivers/clk/qcom/dispcc-sm6375.c b/drivers/clk/qcom/dispcc-sm6375.c
+index 167dd369a..376d1399c 100644
 --- a/drivers/clk/qcom/dispcc-sm6375.c
 +++ b/drivers/clk/qcom/dispcc-sm6375.c
-@@ -477,6 +477,7 @@
+@@ -477,6 +477,7 @@ static struct clk_branch disp_cc_mdss_vsync_clk = {
  };
  
  static struct clk_branch disp_cc_sleep_clk = {
@@ -15,7 +17,7 @@ dispcc-sm6115, the halt register is the enable register.
  	.halt_check = BRANCH_HALT,
  	.clkr = {
  		.enable_reg = 0x5004,
-@@ -490,6 +491,7 @@
+@@ -490,6 +491,7 @@ static struct clk_branch disp_cc_sleep_clk = {
  };
  
  static struct clk_branch disp_cc_xo_clk = {

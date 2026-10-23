@@ -1,23 +1,41 @@
 #!/bin/bash
 # Configure and build the kernel for a milestone (its initramfs is built in).
 #   tools/build-kernel.sh m1
-# Source tree: src/linux-*/ (newest), build tree: out/kbuild, result: out/Image-STAGE.
+#   EXTRA_CONFIG=path/to/debug.config tools/build-kernel.sh m6   (extra fragment, e.g. lockdep)
+# Source tree: src/linux-*/ (newest), build tree: out/kbuild, result: out/Image-STAGE plus
+# out/build-STAGE.info (source commit, uncommitted changes, config hash).
+#
+# The source is a git tree made by tools/mk-kernel-tree.sh: upstream tarball, then one commit per
+# kernel/patches/*.patch on the branch `sunstone`, debug work on branches above it. Nothing is
+# patched here; the build only checks that `sunstone` is part of what is checked out. A plain
+# tarball tree (no .git) still gets the patches applied, as before.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 STAGE=${1:?usage: build-kernel.sh STAGE}
-SRC=$(ls -d "$ROOT"/src/linux-*/ | sort -V | tail -1)
+SRC=$(ls -d "$ROOT"/src/linux-*/ | sort -V | tail -1); SRC=${SRC%/}
 KB=$ROOT/out/kbuild
 M="make -C $SRC O=$KB ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)"
 mkdir -p "$KB"
 
-# local patches (kernel/patches/*.patch), each applied once
-for p in "$ROOT"/kernel/patches/*.patch; do
-	[ -e "$p" ] || continue
-	if ! patch -d "$SRC" -p1 -R -s -f --dry-run < "$p" >/dev/null 2>&1; then
-		patch -d "$SRC" -p1 -N -s < "$p"
-		echo "applied $(basename "$p")"
-	fi
-done
+if [ -d "$SRC/.git" ]; then
+	git -C "$SRC" merge-base --is-ancestor sunstone HEAD ||
+		{ echo "$SRC: branch sunstone is not in HEAD's history" >&2; exit 1; }
+	BASE=$(git -C "$SRC" describe --tags --match 'v*-tarball' --abbrev=0 sunstone)
+	for p in "$ROOT"/kernel/patches/*.patch; do
+		[ -e "$p" ] || continue
+		git -C "$SRC" log --format=%s "$BASE..sunstone" | grep -qxF "$(head -1 "$p")" ||
+			{ echo "$(basename "$p") is not a commit on sunstone (tools/mk-kernel-tree.sh?)" >&2; exit 1; }
+	done
+else
+	# local patches (kernel/patches/*.patch), each applied once
+	for p in "$ROOT"/kernel/patches/*.patch; do
+		[ -e "$p" ] || continue
+		if ! patch -d "$SRC" -p1 -R -s -f --dry-run < "$p" >/dev/null 2>&1; then
+			patch -d "$SRC" -p1 -N -s < "$p"
+			echo "applied $(basename "$p")"
+		fi
+	done
+fi
 
 # initramfs list with absolute paths (@ROOT@ = this checkout)
 sed -e "s|@ROOT@|$ROOT|g" "$ROOT/initramfs/$STAGE.list" > "$ROOT/out/initramfs-$STAGE.list"
@@ -25,8 +43,9 @@ grep -o "$ROOT/[^ ]*" "$ROOT/out/initramfs-$STAGE.list" | while read -r f; do
 	[ -e "$f" ] || { echo "initramfs input missing: $f" >&2; exit 1; }
 done
 
-[ -f "$KB/.config" ] || $M defconfig >/dev/null
-"$SRC/scripts/kconfig/merge_config.sh" -m -O "$KB" "$KB/.config" "$ROOT/kernel/platforms-off.config" "$ROOT/kernel/sunstone.config" >/dev/null
+# the .config is made from scratch every time, so options of an earlier EXTRA_CONFIG build do not stay
+$M defconfig >/dev/null
+"$SRC/scripts/kconfig/merge_config.sh" -m -O "$KB" "$KB/.config" "$ROOT/kernel/platforms-off.config" "$ROOT/kernel/sunstone.config" ${EXTRA_CONFIG:-} >/dev/null
 "$SRC/scripts/config" --file "$KB/.config" --set-str INITRAMFS_SOURCE "$ROOT/out/initramfs-$STAGE.list"
 "$SRC/scripts/config" --file "$KB/.config" --set-str EXTRA_FIRMWARE_DIR "$ROOT/downloads/regdb"
 $M olddefconfig >/dev/null
@@ -35,4 +54,17 @@ for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS US
 done
 $M Image
 cp "$KB/arch/arm64/boot/Image" "$ROOT/out/Image-$STAGE"
+
+{
+	echo "stage: $STAGE"
+	echo "date: $(date -Is)"
+	if [ -d "$SRC/.git" ]; then
+		echo "source: $(git -C "$SRC" rev-parse --abbrev-ref HEAD) $(git -C "$SRC" rev-parse --short=12 HEAD)"
+		echo "uncommitted: $(git -C "$SRC" diff HEAD | sha256sum | cut -c1-16) ($(git -C "$SRC" diff HEAD --stat | tail -1))"
+	fi
+	echo "extra config: ${EXTRA_CONFIG:-none}"
+	echo "config: $(grep -v '^#' "$KB/.config" | grep -v '^CONFIG_INITRAMFS_SOURCE=' | sort | sha256sum | cut -c1-16)"
+	echo "Image: $(sha256sum "$ROOT/out/Image-$STAGE" | cut -c1-16)"
+} > "$ROOT/out/build-$STAGE.info"
+cat "$ROOT/out/build-$STAGE.info"
 ls -l "$ROOT/out/Image-$STAGE"

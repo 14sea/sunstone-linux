@@ -3,9 +3,11 @@ phy: qcom-qmp-ufs: add SM6375 (one-lane SC7280 PHY)
 sunstone-linux local patch. The downstream blair DT uses "qcom,ufs-phy-qmp-v4-yupik" (SC7280)
 with lanes-per-direction = 1.
 
+diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c b/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c
+index d4aca22c1..39640db12 100644
 --- a/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c
 +++ b/drivers/phy/qualcomm/phy-qcom-qmp-ufs.c
-@@ -1465,6 +1465,41 @@
+@@ -1465,6 +1465,41 @@ static const struct qmp_phy_cfg sc7280_ufsphy_cfg = {
  	.regs                   = ufsphy_v4_regs_layout,
  };
  
@@ -47,13 +49,13 @@ with lanes-per-direction = 1.
  static const struct qmp_phy_cfg sc8280xp_ufsphy_cfg = {
  	.lanes			= 2,
  
-@@ -2434,6 +2469,9 @@
+@@ -2433,6 +2468,9 @@ static const struct of_device_id qmp_ufs_of_match_table[] = {
+ 	}, {
  		.compatible = "qcom,sm6350-qmp-ufs-phy",
  		.data = &sdm845_ufsphy_cfg,
- 	}, {
++	}, {
 +		.compatible = "qcom,sm6375-qmp-ufs-phy",
 +		.data = &sm6375_ufsphy_cfg,
-+	}, {
+ 	}, {
  		.compatible = "qcom,sm7150-qmp-ufs-phy",
  		.data = &sm7150_ufsphy_cfg,
- 	}, {

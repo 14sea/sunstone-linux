@@ -5,9 +5,11 @@ qcom,mdss_dsi_m17_38_0c_0a_fhdp_dsc_vid node, plus supplies, an off sequence, tw
 packet and a moderate initial brightness. DSC is set up the DDIC's way (9D 01, then the PPS through
 9E) with slice height 40: the downstream PPS table says 40, its slice-height property says 20.
 
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index cbdf7b8f7..00c49802b 100644
 --- a/drivers/gpu/drm/panel/Kconfig
 +++ b/drivers/gpu/drm/panel/Kconfig
-@@ -1352,6 +1352,17 @@
+@@ -1352,6 +1352,17 @@ config DRM_PANEL_VISIONOX_G2647FB105
  	  Say Y here if you want to enable support for the Visionox
  	  G2647FB105 (2340x1080@60Hz) AMOLED DSI cmd mode panel.
  
@@ -25,16 +27,21 @@ packet and a moderate initial brightness. DSC is set up the DDIC's way (9D 01, t
  config DRM_PANEL_VISIONOX_R66451
  	tristate "Visionox R66451"
  	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 3b523cf37..a2bb56a2f 100644
 --- a/drivers/gpu/drm/panel/Makefile
 +++ b/drivers/gpu/drm/panel/Makefile
-@@ -135,5 +135,6 @@
+@@ -135,5 +135,6 @@ obj-$(CONFIG_DRM_PANEL_VISIONOX_RM69299) += panel-visionox-rm69299.o
  obj-$(CONFIG_DRM_PANEL_VISIONOX_RM692E5) += panel-visionox-rm692e5.o
  obj-$(CONFIG_DRM_PANEL_VISIONOX_VTDR6130) += panel-visionox-vtdr6130.o
  obj-$(CONFIG_DRM_PANEL_VISIONOX_R66451) += panel-visionox-r66451.o
 +obj-$(CONFIG_DRM_PANEL_XIAOMI_M17_38_0C_0A) += panel-xiaomi-m17-38-0c-0a.o
  obj-$(CONFIG_DRM_PANEL_WIDECHIPS_WS2401) += panel-widechips-ws2401.o
  obj-$(CONFIG_DRM_PANEL_XINPENG_XPP055C272) += panel-xinpeng-xpp055c272.o
---- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+diff --git a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+new file mode 100644
+index 000000000..c4d6e9eb1
+--- /dev/null
 +++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
 @@ -0,0 +1,385 @@
 +// SPDX-License-Identifier: GPL-2.0-only

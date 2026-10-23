@@ -9,9 +9,11 @@ sunstone-linux local patch.
   adreno_runtime_resume, never in a6xx_pm_resume). Use a6xx_gmuwrapper_funcs and drop the GMU
   firmware.
 
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index 90a0c7ffb..4fd68004b 100644
 --- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
 +++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
-@@ -840,12 +840,15 @@
+@@ -840,12 +840,15 @@ static const struct adreno_info a6xx_gpus[] = {
  		.revn = 619,
  		.fw = {
  			[ADRENO_FW_SQE] = "a630_sqe.fw",
@@ -29,7 +31,7 @@ sunstone-linux local patch.
  		.zapfw = "a615_zap.mdt",
  		.a6xx = &(const struct a6xx_info) {
  			.hwcg = a615_hwcg,
-@@ -857,6 +860,8 @@
+@@ -857,6 +860,8 @@ static const struct adreno_info a6xx_gpus[] = {
  			{ 0,   0 },
  			{ 190, 1 },
  			{ 177, 2 },

@@ -4,6 +4,8 @@ sunstone-linux local patch. sunstone's charger reports PN 4 in REG14 (boot-12: "
 the downstream DT drives it with the BQ25890 driver. The power supply also gets the device's fwnode,
 so a battery can reference the charger with power-supplies (boot-13: the SM5602 deferred forever).
 
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index 741a45cc5..787d83355 100644
 --- a/drivers/power/supply/bq25890_charger.c
 +++ b/drivers/power/supply/bq25890_charger.c
 @@ -26,6 +26,7 @@
@@ -14,7 +16,7 @@ so a battery can reference the charger with power-supplies (boot-13: the SM5602 
  
  #define PUMP_EXPRESS_START_DELAY	(5 * HZ)
  #define PUMP_EXPRESS_MAX_TRIES		6
-@@ -1036,6 +1037,8 @@
+@@ -1036,6 +1037,8 @@ static int bq25890_power_supply_init(struct bq25890_device *bq)
  
  	psy_cfg.supplied_to = bq25890_charger_supplied_to;
  	psy_cfg.num_supplicants = ARRAY_SIZE(bq25890_charger_supplied_to);
@@ -23,7 +25,7 @@ so a battery can reference the charger with power-supplies (boot-13: the SM5602 
  
  	bq->charger = devm_power_supply_register(bq->dev, &bq->desc, &psy_cfg);
  
-@@ -1318,6 +1321,16 @@
+@@ -1318,6 +1321,16 @@ static int bq25890_get_chip_version(struct bq25890_device *bq)
  		bq->chip_version = BQ25895;
  		break;
  

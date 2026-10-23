@@ -4,9 +4,11 @@ sunstone-linux local patch. sunstone's FT5452 (chip id 0x54) only advances to th
 after a full 63-byte frame read (measured: boot-10, 33-byte reads repeat the stale frame while the
 IRQ fires at ~250 Hz; one 63-byte read releases it). Downstream DT: focaltech,max-touch-number = 10.
 
+diff --git a/drivers/input/touchscreen/edt-ft5x06.c b/drivers/input/touchscreen/edt-ft5x06.c
+index d6c3d033b..776ac088f 100644
 --- a/drivers/input/touchscreen/edt-ft5x06.c
 +++ b/drivers/input/touchscreen/edt-ft5x06.c
-@@ -1460,7 +1460,12 @@
+@@ -1460,7 +1460,12 @@ static const struct edt_i2c_chip_data edt_ft3518_data = {
  };
  
  static const struct edt_i2c_chip_data edt_ft5452_data = {

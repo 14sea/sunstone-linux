@@ -3,9 +3,11 @@ soc: qcom: pd-mapper: add SM6375
 sunstone-linux local patch. The domains in sunstone's modem_a jsn files (adspr/adsps/adspua instance 74,
 cdspr 76, modemr with gps_service and modemuw with wlan/fw, instance 180) are exactly sm6115's table.
 
+diff --git a/drivers/soc/qcom/qcom_pd_mapper.c b/drivers/soc/qcom/qcom_pd_mapper.c
+index 64ca99d7f..c4c5579ae 100644
 --- a/drivers/soc/qcom/qcom_pd_mapper.c
 +++ b/drivers/soc/qcom/qcom_pd_mapper.c
-@@ -653,6 +653,7 @@
+@@ -653,6 +653,7 @@ static const struct of_device_id qcom_pdm_domains[] __maybe_unused = {
  	{ .compatible = "qcom,sm4250", .data = sm6115_domains, },
  	{ .compatible = "qcom,sm6115", .data = sm6115_domains, },
  	{ .compatible = "qcom,sm6350", .data = sm6350_domains, },
