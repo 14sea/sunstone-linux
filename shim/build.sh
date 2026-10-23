@@ -16,6 +16,10 @@ cd "$(dirname "$0")"
 CC=aarch64-linux-gnu-gcc
 OBJCOPY=aarch64-linux-gnu-objcopy
 CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
+# PON_FASTBOOT=1: ask ABL for fastboot before booting Linux, so any later reset (panic, watchdog,
+# long power press) lands in fastboot: the development safety net. Default 0 (an always-on server):
+# a panic reboots straight back into Linux; `reboot bootloader` still reaches fastboot.
+CFLAGS="$CFLAGS -DSHIM_PON_FASTBOOT=${PON_FASTBOOT:-0}"
 SRCS="start.S shim.c console.c mmu.c fdt.c loader.c"
 mkdir -p out
 for f in $SRCS; do

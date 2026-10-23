@@ -18,7 +18,7 @@
 	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 6 display";
 
 	chosen {
-		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused";
+		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused consoleblank=120";
 	};
 
 	panel_avdd: panel-avdd-regulator {

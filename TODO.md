@@ -97,6 +97,18 @@
 - [ ] DTS：`qcom,mdss-dsc-slice-height` 的坑記在面板驅動裡；m6e/m6f/m6g 二分樹在穩定後刪掉。
 - [ ] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。
 
+## 服務器（長期熄屏運行，2026-10-23 起的目標）
+
+- [x] 充電上限：恆壓 4.1 V（約 80 %，m5 的 `&charger`），運行時可寫 `constant_charge_voltage` 臨時充滿。
+- [x] panic 後自動回 Linux：shim 默認不設 fastboot 原因（`PON_FASTBOOT=1` 構建恢復開發用的安全網）。
+- [x] 默認文本模式（`multi-user.target`），Phosh 保留；控制台 `consoleblank=120` 自動關面板。
+- [ ] 硬件看門狗：APSS WDT（下游 `qcom,msm-watchdog` @0xf410000，bark 11 s，SPI 0），主線 `qcom-wdt`
+      （`qcom,kpss-wdt` 佈局，sm6115 寫法），`QCOM_WDT=y`，systemd `RuntimeWatchdogSec`；先確認 bite 後落在哪裏
+      （可能是下載模式）。
+- [ ] 過熱保護：tsens 溫度已有，確認 CPU 降頻（thermal zone 的 trip 和 cooling device）和充電器 JEITA（TS 腳）在高負載時生效。
+- [ ] 長時間穩定性測試（24–48 h）：內存、溫度、Wi-Fi 斷線、內核錯誤；電池在 4.0–4.1 V 之間的小幅循環。
+- [ ] Wi-Fi 健壯性：路由器重啟後重連；開機時 modem 卡 65 s（見上）。
+
 ## 以後
 
 - [ ] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換

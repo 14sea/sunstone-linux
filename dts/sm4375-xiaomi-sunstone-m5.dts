@@ -67,10 +67,11 @@
 };
 
 /*
- * The shim sets the PMIC PON reason to "bootloader" on every boot, so a crash before Linux takes
- * over lands in fastboot. A normal `reboot` now writes reason 0 and comes back into Linux;
- * `reboot bootloader` (`systemctl reboot --reboot-argument=bootloader`, mode-bootloader in pm6125.dtsi) still goes to fastboot, and a panic
- * (emergency restart, no reboot notifiers) keeps the shim's value.
+ * A normal `reboot` writes PON reason 0 and comes back into Linux; `reboot bootloader`
+ * (`systemctl reboot --reboot-argument=bootloader`, mode-bootloader in pm6125.dtsi) goes to fastboot.
+ * A panic (emergency restart, no reboot notifiers) leaves the reason as it was: since 2026-10-23 the
+ * shim no longer sets "bootloader" before Linux (unless built with PON_FASTBOOT=1), so it reboots
+ * into Linux too.
  */
 &pm6125_pon {
 	mode-normal = <0x0>;
@@ -79,14 +80,16 @@
 /*
  * Charging: with linux,read-back-settings the driver caps ICHG at what the bootloader left
  * (512 mA). Program it instead, below the downstream 3 A: 2 A (about 1.86 A on the SC89890H,
- * whose ICHG step is smaller), CV 4.45 V as downstream and the gauge profile (4.432 V after the
- * 16 mV step, as the bootloader had it), precharge/termination as read back on boot-13. Input
- * current stays with the chip's own BC1.2 detection; no reset; JEITA via the TS pin in hardware.
+ * whose ICHG step is smaller), precharge/termination as read back on boot-13. Input current stays
+ * with the chip's own BC1.2 detection; no reset; JEITA via the TS pin in hardware.
+ * CV 4.1 V (4.096 V in 16 mV steps, about 80 %) rather than the downstream 4.45 V: the phone lives
+ * on its charger as a server and the battery is its UPS; 24/7 at 4.45 V ages it fast. For a full
+ * charge: echo 4450000 > /sys/class/power_supply/bq25890-charger-0/constant_charge_voltage
  */
 &charger {
 	/delete-property/ linux,read-back-settings;
 	ti,charge-current = <2000000>;
-	ti,battery-regulation-voltage = <4450000>;
+	ti,battery-regulation-voltage = <4100000>;
 	ti,precharge-current = <192000>;
 	ti,termination-current = <256000>;
 };

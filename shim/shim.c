@@ -673,14 +673,19 @@ void shim_main(uint64_t dtb)
 	con_skip();
 
 	/*
-	 * A Linux payload behind _end (build.sh payload.bin): boot it. Set the PMIC
-	 * reboot reason first, so that whatever resets the phone later (a panic, a
-	 * watchdog, a long power press, `reboot`) lands in fastboot and not in
-	 * another boot of this slot.
+	 * A Linux payload behind _end (build.sh payload.bin): boot it. With
+	 * SHIM_PON_FASTBOOT (PON_FASTBOOT=1 build.sh) set the PMIC reboot reason
+	 * first, so that whatever resets the phone later (a panic, a watchdog, a
+	 * long power press, `reboot`) lands in fastboot and not in another boot of
+	 * this slot; without it (the default) such a reset boots Linux again.
 	 */
 	uintptr_t emb = ((uintptr_t)_end + 0xfff) & ~0xfffUL;
 	if (match(emb, "SWEETLNX")) {
+#if SHIM_PON_FASTBOOT
 		con_str("PON", pon_reason_bootloader() ? "fastboot reason set" : "reason NOT set");
+#else
+		con_str("PON", "left alone: a reset boots Linux again");
+#endif
 		con_skip();
 		stage = "cpufreq";
 		cpufreq_max();
