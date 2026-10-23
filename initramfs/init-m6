@@ -33,6 +33,11 @@ fi
 log "UDC $UDC"
 
 G=/sys/kernel/config/usb_gadget/sunstone
+if [ -e /sys/class/net/usb0 ] && [ ! -d $G ]; then
+	# (debug) a built-in legacy gadget (g_ncm, same MACs via g_ncm.dev_addr/host_addr) is already bound
+	IF=usb0
+	log "kernel gadget already bound, interface $IF"
+else
 mkdir -p $G/strings/0x409 $G/configs/c.1/strings/0x409 $G/functions/ncm.usb0 $G/functions/acm.GS0
 echo 0x1d6b > $G/idVendor		# Linux Foundation
 echo 0x0104 > $G/idProduct		# Multifunction Composite Gadget
@@ -52,13 +57,16 @@ ln -s $G/functions/acm.GS0 $G/configs/c.1/
 echo "$UDC" > $G/UDC || bye "binding the gadget to $UDC failed"
 IF=$(cat $G/functions/ncm.usb0/ifname)
 log "gadget bound, interface $IF"
+fi
 
 # netconsole: the kernel log as UDP to the test host's end of the USB link (its MAC is the
 # gadget's fixed host_addr, so no ARP is needed; the test host captures it with tcpdump even before
 # it has an address). Keeps working after switch_root.
 ip link set "$IF" up
 NC=/sys/kernel/config/netconsole/usb
-if mkdir $NC 2>/dev/null; then
+if grep -q "netconsole=" /proc/cmdline; then
+	log "netconsole configured on the kernel command line"
+elif mkdir $NC 2>/dev/null; then
 	echo "$IF" > $NC/dev_name
 	echo 192.168.7.2 > $NC/local_ip
 	echo 192.168.7.1 > $NC/remote_ip

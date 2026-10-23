@@ -54,6 +54,14 @@
 			reg-names = "mdss";
 
 			power-domains = <&dispcc MDSS_GDSC>;
+			/*
+			 * msm resets MDSS at probe: this stops ABL's splash scanout. Without it the DPU still
+			 * fetches the splash (0x85200000) when msm switches the display stream to its own
+			 * SMMU domain; if MDSS has not been power-collapsed in between (the first modeset
+			 * inside the panel's probe holds its parents active) that ends in SMMU faults, DSI
+			 * FIFO underflow and a hard hang (LOG.md boot-34-69).
+			 */
+			resets = <&dispcc DISP_CC_MDSS_CORE_BCR>;
 
 			clocks = <&gcc GCC_DISP_AHB_CLK>,
 				 <&dispcc DISP_CC_MDSS_AHB_CLK>,

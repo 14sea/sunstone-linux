@@ -52,39 +52,19 @@
 - [ ] GPU 最高 650 MHz：速度檔 148 下游可到 700 MHz，但 gpucc 的頻率表沒有 700。
 - [ ] boot-22（無 GPU 節點）有一次無日誌的啟動失敗，原因未明；netconsole 已就緒，再出現時能看到。
 - [x] 真正的顯示驅動（MDSS/DPU/DSI + 面板，2026-10-23 屏幕正常）：面板驅動發完整的下游上電序列，DSC 切片高度 40。
-- [ ] **面板驅動編進內核時開機卡死**（boot-34、45、57；記錄見 LOG.md boot-39–58）。現狀：boot_a 上是
-      延遲 1 ms 的調試版（boot-58），正式方案未定（用户不要 workqueue 繞過）；`=m` 手動 insmod 也能用。
-      - 觸發條件：msm 的綁定和第一次 modeset 在面板 probe 裏同步跑，且發生在內核初始化期間（`/init` 之前）。
-        正常的做法（probe 末尾 `devm_mipi_dsi_attach`）正好就是這樣：DSI host 的 attach 觸發 component bind，
-        bind 裏 `drm_client_setup` 做 fbdev 的第一次 modeset，modeset 給面板上電發命令。
-      - 不出事的情況：同一時刻從 workqueue 做（boot-42，0.365 s）；initcall 結束後在 probe 裏同步做（boot-44，5 s
-        unbind/bind；boot-38 insmod）；延遲 3 s / 20 s（boot-39/40）。
-      - 出事的情況：fbcon 接管 msm 的 fb（正常配置，boot-34/45）→ 卡死；異步 probe（boot-57，PID 1 在 `/init`
-        之前 `async_synchronize_full` 等它）→ 卡死；延遲接管（boot-53/55）→ 能開機但 DSI FIFO 錯誤
-        （`dsi_err_worker: status=4`）、所有 DSI 命令超時 `-110`，面板沒初始化。
-      - 拆開 bind 的幾步（msm 本地調試開關 `sunstone_keepfb`，boot-47/49/51）：只綁定不 modeset 正常；移除 simpledrm
-        正常；建 fbdev 做 modeset 但 fbcon 不接管也能用，不過同樣有 FIFO 錯誤、上電序列慢到 1.3 s。
-      - 已知：內核初始化期間的第一次 modeset 讓 DSI 出 FIFO 錯誤（`status=4` 是軟件匯總的 `DSI_ERR_STATE_FIFO`，
-        不是寄存器原值；這條分支不做 `dsi_sw_reset()`，等於沒恢復），之後命令 DMA 超時。超時不能解釋卡死：
-        `mipi_dsi_*_multi` 在第一次出錯後跳過其餘命令，每次 DMA 等 200 ms（boot-55 的 prepare 只用了 0.3 s），
-        所以卡死另有原因（鎖等待、無界等待、中斷風暴或反覆重試）；`panic=20` 沒重啟也只說明沒有 panic。
-      - workqueue 能用不等於「PID 1 必須往前走」：那時 probe 已經返回、設備鎖已釋放、驅動核心已完成綁定，
-        這幾件事要分開測。boot-49 已經說明：保留標準的同步 attach、第一次 modeset 交給 userspace（phoc），正常。
-      - 計劃（每次同一份 Image，只改一個條件）：
-        (1) 用能開機但 DSI 出錯的配置（boot-55）拿證據：在 `dsi_fifo_status()` 清寄存器前把第一次異常存進內存
-            （FIFO/INTR/STATUS/CLK/ACK/TIMEOUT 原值、當前命令和 DMA、DMA_DONE 計數、PID/comm/CPU/system_state、
-            IRQ 狀態、時鐘 parent/rate、PLL lock、runtime PM 返回值），開機後讀出；IRQ 裏不直接大量打印。
-            `Lucid PLL latch failed` 補上時鐘名、目標頻率、parent 頻率和調用棧（它只來自 dispcc 的
-            disp_cc_pll0，和 DSI PHY PLL 是兩條路；失敗分支直接返回 -EINVAL，latch 位沒清）。
-        (2) 正常配置加 `fb.lockless_register_fb=1`（只作診斷）：console_lock 是否參與卡死。
-        (3) worker attach，同時讓 PID 1 在原位置做有超時的等待：成功是否真的需要 PID 1 往前走（另記 probe 和
-            設備鎖的狀態）。不要在同步 probe 裏等後面的 initcall：同一個 PID 1 會自己死鎖；要測階段邊界，
-            先讓 probe 返回，再由選定階段觸發 attach。
-        另外確認 ABL 留下的 DSI/DPU 狀態（連續 splash 還在掃描）在第一次 modeset 時怎麼被接管。
-      - 拿日誌的辦法：initcall 期間 netconsole 還沒起來（USB gadget 由 /init 配置），pstore 記錄衰減到不可讀，
-        msm 接管後屏幕控制台不可見；可用 `sunstone_keepfb` 保留 simpledrm 控制台、`panic=0`、TER16x32 字體拍照。
-      - 調試代碼（未提交，梳理後清理）：面板驅動的 `attach_delay_ms`/`attach_now` 參數和斷點日誌，
-        `initramfs/init-m6` 的重新 probe 塊，msm_kms.c 的 `sunstone_keepfb`（只在 src 裏，不在補丁裏）。
+- [x] **面板驅動編進內核時開機卡死**（boot-34–81，記錄見 LOG.md）。根因：DTS 的 mdss 節點漏了
+      `resets = <&dispcc DISP_CC_MDSS_CORE_BCR>`，msm 不復位 MDSS，ABL 的開機畫面要等 MDSS 斷一次電才停。面板 probe
+      裏同步 attach 時（第一次 modeset 在 deferred probe 的 kworker 裏、probe 之內），驅動核心讓 DSI host 和 MDSS 保持
+      活動，msm 把 SID 0x820 換到自己的 SMMU 域時 DPU 還在讀 0x85200000 → SMMU 上下文錯誤、DSI FIFO 下溢、硬卡死；PID 1
+      在 `deferred_probe_initcall` 的 `flush_work` 上等它，所以 `/init` 不運行。workqueue/模塊/延遲能用，是因為 MDSS
+      碰巧先 runtime suspend 斷了電。加上復位後正式版（主線寫法，`=y`）3/3 正常。/root/panel.ko 不再需要。
+      調查用的工具：內核 git 樹的 `debug/panel-early-bind` 分支（導出在 `kernel/debug/patches/`），早期日誌通道
+      （`kernel/debug/README.md`），`tools/run-exp.sh`。
+- [ ] MDSS 復位之後，DSI PHY 註冊時鐘時報 `dsi0_phy_pll_out_dsiclk/byteclk already unprepared`（WARN）：dispcc 的
+      byte0/pclk0 時鐘源帶 `CLK_OPS_PARENT_ENABLE`，孤兒重掛父時鐘時要先打開 PHY PLL，PHY 剛被復位還沒初始化，打開失敗
+      但返回值被忽略，之後的關閉觸發告警。顯示正常。查 agatti（同樣的 dispcc 標誌 + 復位）上游有沒有處理；可能的修法：
+      dispcc 在 PHY 時鐘可用前不要把這兩個 RCG 當成以 PHY 為父，或在 clk 框架裏讓 `__clk_set_parent_before` 失敗時不做
+      對應的關閉。
 - [ ] 面板 prepare 失敗後沒有恢復：Phosh 之後的 modeset 不會重新 prepare，屏幕一直黑。`m17_prepare()` 失敗時
       已經會復位、斷電；要查的是 DRM 的 active 狀態是否讓後續提交不再走完整的 disable/prepare/enable。先用一次
       完整的關閉再開啟顯示的提交驗證，不在 enable 裏補 prepare。
@@ -92,7 +72,10 @@
       應保存原 flags 並在所有出口恢復，處理和面板上下電的並發；面板沒上電時更新亮度只緩存不發 DSI，讀亮度也要處理。
       開機時 systemd-backlight 恢復亮度報 EINVAL（面板還沒上電）。gsd-power 的 `'max > min'` 斷言另查它讀的是哪個
       背光設備和數值，不先認定是同一個原因。
-- [ ] `Lucid PLL latch failed. Output may be unstable!`：msm 綁定時每次出現兩次（dispcc 的 PLL 改頻率時）。
+- [ ] `Lucid PLL latch failed`：每次開機兩次，都是 `dpu_kms_init` 經 OPP 設 MDP 時鐘時 dispcc 的 `disp_cc_pll0` 改頻
+      （1120 MHz、747 MHz，parent 19.2 MHz，`PLL_MODE` 0x9000004/5）。失敗分支返回 -EINVAL 且沒清 latch 位；
+      `dev_pm_opp_set_rate` 的失敗也沒人檢查，MDP 實際跑在什麼頻率要確認。對照下游 dispcc 的 PLL 配置
+      （是否要求 PLL 在改頻時處於某種狀態，或 sm6375 的 Lucid 要用不同的 latch 流程）。
 - [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
       panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的
       ECC/dmesg 區目前只在 m6d 的 DTS 裏。

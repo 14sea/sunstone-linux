@@ -52,3 +52,14 @@
 | 55 | 2026-10-23 | 正常內核（無 lockdep），延遲 0，延遲接管；`067bea68b631ca5b` | 能開機：1.147 s 兩次 FIFO 錯誤，之後**所有** DSI 命令 `-110`（含後來的亮度命令），屏幕應為黑 → 不是 lockdep 造成的 | journal |
 | 57 | 2026-10-23 | 正常內核，延遲 0，面板驅動 `PROBE_PREFER_ASYNCHRONOUS`，不開延遲接管；`c84936a040421fca` | **起不來**：4 分鐘無 USB、沒進 fastboot（`panic=20` 沒觸發 → 卡死不是 panic）；用户強制重啟 | — |
 | 58 | 2026-10-23 | 刷回 boot-43 的鏡像（延遲 1 ms） | 正常 | — |
+| — | 2026-10-23 | 內核源碼改成 git 樹（`tools/mk-kernel-tree.sh`，分支 `sunstone` + `debug/panel-early-bind`），boot-58 的鏡像、DTB 和 `/proc/config.gz` 存到 `out/saved/boot-58/`；調試配置片段 `kernel/debug/m6-display.config` | 從頭生成的 `.config` 和 boot-58 的完全一致 | — |
+| 59 | 2026-10-23 | 插樁：第一次 DSI 錯誤的寄存器快照、中斷計數、上電上下文（`/sys/module/msm/parameters/sunstone_dsi_snap`），PLL latch 失敗的細節；延遲 0，延遲接管；`59a4ad50b3556ca5` | **起不來**，黑屏 | — |
+| 61 | 2026-10-23 | boot-55 的原鏡像原樣重刷（`067bea68b631ca5b`） | **起不來** → 問題時有時無，boot-55 能開機是碰巧，不是插樁造成的 | — |
+| 63 | 2026-10-23 | 早期日誌通道：內核裏的 `g_ncm` + 命令行 netconsole（target 等 `usb0` 出現）；延遲 1 ms 對照；`52e97ed5daacf360` | 正常。**面板 probe 跑在 deferred probe 的 kworker 裏**（`system_state 1`），不在 PID 1；`disp_cc_pll0` 的 latch 在 `dpu_kms_init` 設 MDP 時鐘（1120 MHz、747 MHz）時失敗，每次都有；DSI 上電 `rpm 0` | journal |
+| 65 | 2026-10-23 | 同一份 Image，延遲 0；`7b174b0b4540718b` | 起不來，netconsole 一行都沒有：netconsole 是 late_initcall，排在 `deferred_probe_initcall` 之後，而後者 `flush_work` 等那個卡住的 kworker → PID 1 卡在 flush 上 | — |
+| 67 | 2026-10-23 | netconsole 改到 device_initcall（調試補丁）；延遲 1 ms 對照；`1499b8671bb339d4` | 正常，netconsole 0.30 s 初始化、0.63 s `usb0` 出現時恢復 | journal |
+| 69 | 2026-10-23 | 同上，延遲 0；`657cc9c26185ce05` | 起不來，但日誌送出來了：1.054 s DSI 上電（`rpm 1`），1.057 s 起 **SMMU 上下文錯誤**：SID 0x820（MDSS）讀 iova 0x85200000 起的地址，即 ABL 開機畫面；1.078 s DSI FIFO 下溢（`FIFO_STATUS cccc1018`，`DLN0_PHY_ERR 00088888`，還沒發過命令）；1.105 s 面板 prepare 開始後系統硬卡死（卡死檢測也沒有輸出） | netconsole.log |
+| — | 2026-10-23 | 對比 journal：能開機的 5 次 SMMU 錯誤 0、DSI 錯誤 0、DSI 上電 `rpm 0`；卡死的那次 `rpm 1` | **根因**：ABL 的開機畫面只有 MDSS 斷一次電才停；msm 綁定時把 MDSS 的 stream 從默認的 identity 域換成自己的域。probe 期間驅動核心讓父設備（DSI host → MDSS）保持活動，所以在面板 probe 裏同步做第一次 modeset 時，MDSS 從開機起沒斷過電，DPU 還在掃描開機畫面 → SMMU 錯誤、下溢、卡死。workqueue 晚做時，probe 已返回，MDSS 趁空檔 runtime suspend 斷電，開機畫面被清掉 | — |
+| 71 | 2026-10-23 | DTS 的 mdss 節點加 `resets = <&dispcc DISP_CC_MDSS_CORE_BCR>`（msm 在 MDSS probe 時復位，主線 18 個 SoC 都這樣寫，我們漏了），延遲 0；`3131a5c6c7a66ce4` | **正常**：`rpm 1` 但沒有 SMMU 錯誤和 DSI 錯誤，上電序列 0。新告警：DSI PHY 註冊時鐘時 `dsi0_phy_pll_out_{dsiclk,byteclk} already unprepared`（復位後 PHY 未初始化，孤兒時鐘重掛父時鐘時打開 PLL 失敗） | journal |
+| 73、75 | 2026-10-23 | 同一個鏡像再跑兩次 | 都正常 → 3/3（加 resets 之前同樣條件 5 次卡 4 次） | journal |
+| 77、79、81 | 2026-10-23 | **正式版**：內核 `sunstone` 分支（面板驅動是主線寫法，probe 裏同步 attach，無調試代碼），面板 `=y`，DTS 帶 MDSS 復位，無調試啟動參數；`42edf483cb82308d` | 3/3 正常：msm 0.65–0.98 s 綁定，fb0、`/init`、Phosh 正常，無 SMMU/DSI 錯誤；只剩 `dsi0_phy_pll_out_*clk already unprepared` 告警。用户確認屏幕正常 | journal |
