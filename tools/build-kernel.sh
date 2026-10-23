@@ -20,11 +20,19 @@ mkdir -p "$KB"
 if [ -d "$SRC/.git" ]; then
 	git -C "$SRC" merge-base --is-ancestor sunstone HEAD ||
 		{ echo "$SRC: branch sunstone is not in HEAD's history" >&2; exit 1; }
+	# kernel/patches and the sunstone branch must carry the same changes, in the same order:
+	# compare git patch-ids (content, not just subjects)
 	BASE=$(git -C "$SRC" describe --tags --match 'v*-tarball' --abbrev=0 sunstone)
-	for p in "$ROOT"/kernel/patches/*.patch; do
-		[ -e "$p" ] || continue
-		git -C "$SRC" log --format=%s "$BASE..sunstone" | grep -qxF "$(head -1 "$p")" ||
-			{ echo "$(basename "$p") is not a commit on sunstone (tools/mk-kernel-tree.sh?)" >&2; exit 1; }
+	mapfile -t commits < <(git -C "$SRC" rev-list --reverse "$BASE..sunstone")
+	patches=("$ROOT"/kernel/patches/[0-9][0-9][0-9][0-9]-*.patch)
+	[ -e "${patches[0]}" ] || patches=()
+	[ ${#commits[@]} -eq ${#patches[@]} ] ||
+		{ echo "sunstone has ${#commits[@]} commits, kernel/patches ${#patches[@]} files" >&2; exit 1; }
+	for i in "${!patches[@]}"; do
+		a=$(git -C "$SRC" patch-id --stable < "${patches[$i]}" | cut -d' ' -f1)
+		b=$(git -C "$SRC" show "${commits[$i]}" | git -C "$SRC" patch-id --stable | cut -d' ' -f1)
+		[ -n "$a" ] && [ "$a" = "$b" ] || { echo "$(basename "${patches[$i]}") differs from sunstone commit" \
+			"$(git -C "$SRC" log -1 --format='%h %s' "${commits[$i]}") (export or rebuild the tree)" >&2; exit 1; }
 	done
 else
 	# local patches (kernel/patches/*.patch), each applied once
@@ -61,6 +69,7 @@ cp "$KB/arch/arm64/boot/Image" "$ROOT/out/Image-$STAGE"
 	if [ -d "$SRC/.git" ]; then
 		echo "source: $(git -C "$SRC" rev-parse --abbrev-ref HEAD) $(git -C "$SRC" rev-parse --short=12 HEAD)"
 		echo "uncommitted: $(git -C "$SRC" diff HEAD | sha256sum | cut -c1-16) ($(git -C "$SRC" diff HEAD --stat | tail -1))"
+		echo "untracked: $(git -C "$SRC" status --porcelain --untracked-files=all | grep -c '^??' || true) files"
 	fi
 	echo "extra config: ${EXTRA_CONFIG:-none}"
 	echo "config: $(grep -v '^#' "$KB/.config" | grep -v '^CONFIG_INITRAMFS_SOURCE=' | sort | sha256sum | cut -c1-16)"

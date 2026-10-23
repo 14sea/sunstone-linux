@@ -4,7 +4,7 @@ Mainline Linux (7.3) and a prebuilt Arch Linux ARM userland on the **Xiaomi Redm
 (`sunstone`, Qualcomm SM4375 "blair" / Snapdragon 4 Gen 1), brought up one milestone at a time.
 The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 
-## Status (2026-10-23)
+## Status (2026-10-23, evening)
 
 | Milestone | State |
 | --- | --- |
@@ -13,10 +13,10 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | M3 rootfs | Arch Linux ARM on `userdata` (switch_root from the initramfs) |
 | M4 hardware | UFS, keys, FT5452 touch, SM5602 fuel gauge, SC89890H charger, RTC offset, PON reboot modes |
 | M5 Wi-Fi | modem (MPSS) + WCN3988 over ath10k, joins on boot |
-| M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver (still loaded as a module after boot) |
+| M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver, built in |
 
-Open items are in `TODO.md` (modem stall on cold boot, WLAN board data, built-in panel driver
-crashing early boot, screen blanking, ...).
+Open items are in `TODO.md` (modem stall on cold boot, WLAN board data, screen blanking and
+wake-up, panel error paths, DSI PHY clock warning, dispcc PLL latch, ...).
 
 ## How it boots
 
@@ -31,7 +31,7 @@ jumps to a `SWEETLNX` payload appended behind it: the mainline `Image` plus the 
 | Path | What |
 | --- | --- |
 | `dts/` | Board DTS per milestone, each including the previous one (m1 -> ... -> m6 -> m6d) |
-| `kernel/` | `sunstone.config` fragment and local patches (`patches/`, applied by `build-kernel.sh`) |
+| `kernel/` | `sunstone.config` fragment, local patches (`patches/`, one per commit of the kernel tree's `sunstone` branch) and debugging aids (`debug/`) |
 | `initramfs/` | Built-in initramfs per milestone (`init-mN`, `mN.list`) |
 | `shim/` | The boot shim and the boot image wrapper |
 | `rootfs-overlay/` | Files on top of Arch Linux ARM (Phosh service, wlroots patch build, firmware install, Wi-Fi setup, ...) |
@@ -40,12 +40,16 @@ jumps to a `SWEETLNX` payload appended behind it: the mainline `Image` plus the 
 ## Building
 
 ```sh
-# kernel source in src/linux-7.3 (not in git), aarch64-linux-gnu- cross toolchain
-tools/build-kernel.sh m6          # -> out/Image-m6 (patches applied once)
+# downloads/linux-7.3.tar.xz + sha256sums.asc from kernel.org, aarch64-linux-gnu- cross toolchain
+tools/mk-kernel-tree.sh 7.3       # -> src/linux-7.3: git tree, tarball + one commit per kernel/patches file
+tools/build-kernel.sh m6          # -> out/Image-m6 and out/build-m6.info (checks patches = branch)
 KSTAGE=m6 tools/mkboot.sh m6d     # -> out/boot-m6d.img: m6 kernel, m6d DTB, shim
 tools/mkrootfs.sh                 # -> out/rootfs-arch.img for userdata
 cp tools/host.conf.example tools/host.conf   # then tools/flash.sh STAGE N
 ```
+
+Kernel changes are made as commits on `sunstone` in `src/linux-7.3` and written back with
+`tools/export-kernel-patches.sh`.
 
 No vendor firmware is in this repository. The phone's own partitions provide it at run time
 (`rootfs-overlay/usr/local/sbin/sunstone-fw-install`); the GPU SQE microcode comes from

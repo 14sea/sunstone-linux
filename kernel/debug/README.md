@@ -32,3 +32,11 @@ The MACs are the same as the initramfs gadget's, so the test host's interface na
 not change; `initramfs/init-m6` sees the kernel gadget and the command-line target and skips its own.
 `tools/run-exp.sh STAGE N` flashes one experiment image and stages the saved boot-58 image as the
 restore for the next fastboot.
+
+## Known limits of the debug patches
+
+The workqueue attach (0001, 0002) uses a bare `mipi_dsi_attach()` with no matching detach: unbinding
+the panel driver after a delayed attach leaves the DSI component bound to freed panel/DSC data, a
+second bind can add the component twice, and `attached` is set before the attach succeeds. The
+unbind/bind of boot-44 only worked because the first probe had not attached yet. Good enough for
+the experiments, not for anything else; the `sunstone` branch uses `devm_mipi_dsi_attach()`.

@@ -63,3 +63,4 @@
 | 71 | 2026-10-23 | DTS 的 mdss 節點加 `resets = <&dispcc DISP_CC_MDSS_CORE_BCR>`（msm 在 MDSS probe 時復位，主線 18 個 SoC 都這樣寫，我們漏了），延遲 0；`3131a5c6c7a66ce4` | **正常**：`rpm 1` 但沒有 SMMU 錯誤和 DSI 錯誤，上電序列 0。新告警：DSI PHY 註冊時鐘時 `dsi0_phy_pll_out_{dsiclk,byteclk} already unprepared`（復位後 PHY 未初始化，孤兒時鐘重掛父時鐘時打開 PLL 失敗） | journal |
 | 73、75 | 2026-10-23 | 同一個鏡像再跑兩次 | 都正常 → 3/3（加 resets 之前同樣條件 5 次卡 4 次） | journal |
 | 77、79、81 | 2026-10-23 | **正式版**：內核 `sunstone` 分支（面板驅動是主線寫法，probe 裏同步 attach，無調試代碼），面板 `=y`，DTS 帶 MDSS 復位，無調試啟動參數；`42edf483cb82308d` | 3/3 正常：msm 0.65–0.98 s 綁定，fb0、`/init`、Phosh 正常，無 SMMU/DSI 錯誤；只剩 `dsi0_phy_pll_out_*clk already unprepared` 告警。用户確認屏幕正常 | journal |
+| 83、85 | 2026-10-23 | 正式版鏡像，用修好的 `tools/run-exp.sh` 跑（刷寫確認、boot_id + 內核版本校驗、成功後撤回恢復） | 正常；boot-83 時腳本的版本提取取到了 Image 裏不帶構建號的 banner，報「不是這個鏡像的內核」，修正後 boot-85 通過 | — |
