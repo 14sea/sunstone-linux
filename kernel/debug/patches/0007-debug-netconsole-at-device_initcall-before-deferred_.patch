@@ -1,0 +1,26 @@
+From df0c9cd18617c22285a7f37311cbaffddaec1de9 Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 17:26:06 +0100
+Subject: [PATCH 7/7] debug: netconsole at device_initcall, before
+ deferred_probe_initcall can block PID 1
+
+---
+ drivers/net/netconsole.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/netconsole.c b/drivers/net/netconsole.c
+index 5cbe13ae3..62275da12 100644
+--- a/drivers/net/netconsole.c
++++ b/drivers/net/netconsole.c
+@@ -2834,5 +2834,10 @@ static void __exit cleanup_netconsole(void)
+  *
+  * late_initcall() and module_init() are identical if built as module.
+  */
+-late_initcall(init_netconsole);
++/*
++ * (sunstone debug) device_initcall instead of late_initcall: deferred_probe_initcall (also late, and
++ * drivers/base links before drivers/net) flushes the deferred probe work, and a probe stuck there
++ * kept netconsole from ever starting. Command-line targets now wait for their device (above).
++ */
++device_initcall(init_netconsole);
+ module_exit(cleanup_netconsole);

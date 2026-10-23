@@ -1,0 +1,82 @@
+From ab7eff92088c90e14c38153d4db7bd9c56203ffa Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 16:41:27 +0100
+Subject: [PATCH 2/7] debug: re-probe support, attach breadcrumbs, asynchronous
+ probe
+
+attach_delay_ms writable and the work devm-cancelled so the initramfs can unbind/bind the panel
+(boot-44); log around the synchronous attach (boot-45 on); PROBE_PREFER_ASYNCHRONOUS (boot-57).
+---
+ .../gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c | 25 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+index 593c753e4..c460ba134 100644
+--- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
++++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+@@ -10,6 +10,7 @@
+ 
+ #include <linux/backlight.h>
+ #include <linux/delay.h>
++#include <linux/devm-helpers.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+@@ -42,7 +43,7 @@ struct m17_panel {
+ 
+ /* (debug) built in, the panel crashes the phone ~1 s into boot; attaching later moves msm's bind */
+ static unsigned int attach_delay_ms;
+-module_param(attach_delay_ms, uint, 0444);
++module_param(attach_delay_ms, uint, 0644);
+ MODULE_PARM_DESC(attach_delay_ms, "(debug) attach to the DSI host this many ms after probe");
+ 
+ /* (debug) writing 1 attaches now, so the initramfs can trigger msm's bind once netconsole is up */
+@@ -335,6 +336,11 @@ static struct backlight_device *m17_create_backlight(struct mipi_dsi_device *dsi
+ 					      &m17_bl_ops, &props);
+ }
+ 
++static void m17_debug_ctx_clear(void *data)
++{
++	m17_debug_ctx = NULL;
++}
++
+ static void m17_attach_work(struct work_struct *work)
+ {
+ 	struct m17_panel *ctx = container_of(to_delayed_work(work), struct m17_panel, attach_work);
+@@ -400,15 +406,25 @@ static int m17_probe(struct mipi_dsi_device *dsi)
+ 	ctx->dsc.bits_per_pixel = 8 << 4; /* 4 fractional bits */
+ 	ctx->dsc.block_pred_enable = true;
+ 
++	ret = devm_delayed_work_autocancel(dev, &ctx->attach_work, m17_attach_work);
++	if (ret)
++		return ret;
++	m17_debug_ctx = ctx;
++	ret = devm_add_action_or_reset(dev, m17_debug_ctx_clear, NULL);
++	if (ret)
++		return ret;
++	dev_info(dev, "probe, attach_delay_ms %u\n", attach_delay_ms);
++
+ 	if (attach_delay_ms) {
+-		INIT_DELAYED_WORK(&ctx->attach_work, m17_attach_work);
+-		m17_debug_ctx = ctx;
+ 		queue_delayed_work(system_dfl_wq, &ctx->attach_work, msecs_to_jiffies(attach_delay_ms));
+ 		dev_info(dev, "DSI attach in %u ms\n", attach_delay_ms);
+ 		return 0;
+ 	}
+ 
+-	return devm_mipi_dsi_attach(dev, dsi);
++	dev_info(dev, "probe: synchronous DSI attach\n");
++	ret = devm_mipi_dsi_attach(dev, dsi);
++	dev_info(dev, "probe: DSI attach returned %d\n", ret);
++	return ret;
+ }
+ 
+ static const struct of_device_id m17_of_match[] = {
+@@ -422,6 +438,7 @@ static struct mipi_dsi_driver m17_driver = {
+ 	.driver = {
+ 		.name = "panel-xiaomi-m17-38-0c-0a",
+ 		.of_match_table = m17_of_match,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+ 	},
+ };
+ module_mipi_dsi_driver(m17_driver);

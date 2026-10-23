@@ -1,0 +1,102 @@
+From 5bf18e8f155345b53ed70075d06bb2e54a5e4616 Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 16:41:27 +0100
+Subject: [PATCH 1/7] debug: panel attach_delay_ms / attach_now, prepare
+ breadcrumbs
+
+State built for boot-42, -43 and -58 (attach from a workqueue N ms after probe, or when the
+initramfs writes attach_now). Reconstructed from the edit history; the exact boot-58 .config,
+Image and DTB are in out/saved/boot-58/.
+---
+ .../gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c | 45 +++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+index c4d6e9eb1..593c753e4 100644
+--- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
++++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+@@ -14,6 +14,7 @@
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+ #include <linux/regulator/consumer.h>
++#include <linux/workqueue.h>
+ 
+ #include <video/mipi_display.h>
+ 
+@@ -35,8 +36,31 @@ struct m17_panel {
+ 	struct drm_dsc_config dsc;
+ 	struct regulator_bulk_data *supplies;
+ 	struct gpio_desc *reset_gpio;
++	struct delayed_work attach_work;
++	bool attached;
+ };
+ 
++/* (debug) built in, the panel crashes the phone ~1 s into boot; attaching later moves msm's bind */
++static unsigned int attach_delay_ms;
++module_param(attach_delay_ms, uint, 0444);
++MODULE_PARM_DESC(attach_delay_ms, "(debug) attach to the DSI host this many ms after probe");
++
++/* (debug) writing 1 attaches now, so the initramfs can trigger msm's bind once netconsole is up */
++static struct m17_panel *m17_debug_ctx;
++
++static int m17_attach_now_set(const char *val, const struct kernel_param *kp)
++{
++	if (!m17_debug_ctx || READ_ONCE(m17_debug_ctx->attached))
++		return -EALREADY;
++	mod_delayed_work(system_dfl_wq, &m17_debug_ctx->attach_work, 0);
++	return 0;
++}
++
++static const struct kernel_param_ops m17_attach_now_ops = {
++	.set = m17_attach_now_set,
++};
++module_param_cb(attach_now, &m17_attach_now_ops, NULL, 0200);
++
+ static inline struct m17_panel *to_m17_panel(struct drm_panel *panel)
+ {
+ 	return container_of_const(panel, struct m17_panel, panel);
+@@ -175,9 +199,11 @@ static int m17_prepare(struct drm_panel *panel)
+ 	/* downstream qcom,supply-post-on-sleep = 20 ms on vddio */
+ 	msleep(20);
+ 
++	dev_info(dev, "prepare: supplies on, reset\n");
+ 	m17_reset(ctx);
+ 
+ 	ret = m17_on(ctx);
++	dev_info(dev, "prepare: on sequence %d\n", ret);
+ 	if (ret < 0) {
+ 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
+ 		goto err;
+@@ -309,6 +335,17 @@ static struct backlight_device *m17_create_backlight(struct mipi_dsi_device *dsi
+ 					      &m17_bl_ops, &props);
+ }
+ 
++static void m17_attach_work(struct work_struct *work)
++{
++	struct m17_panel *ctx = container_of(to_delayed_work(work), struct m17_panel, attach_work);
++
++	if (ctx->attached)
++		return;
++	WRITE_ONCE(ctx->attached, true);
++	dev_info(&ctx->dsi->dev, "delayed DSI attach\n");
++	dev_info(&ctx->dsi->dev, "delayed DSI attach: %d\n", mipi_dsi_attach(ctx->dsi));
++}
++
+ static int m17_probe(struct mipi_dsi_device *dsi)
+ {
+ 	struct device *dev = &dsi->dev;
+@@ -363,6 +400,14 @@ static int m17_probe(struct mipi_dsi_device *dsi)
+ 	ctx->dsc.bits_per_pixel = 8 << 4; /* 4 fractional bits */
+ 	ctx->dsc.block_pred_enable = true;
+ 
++	if (attach_delay_ms) {
++		INIT_DELAYED_WORK(&ctx->attach_work, m17_attach_work);
++		m17_debug_ctx = ctx;
++		queue_delayed_work(system_dfl_wq, &ctx->attach_work, msecs_to_jiffies(attach_delay_ms));
++		dev_info(dev, "DSI attach in %u ms\n", attach_delay_ms);
++		return 0;
++	}
++
+ 	return devm_mipi_dsi_attach(dev, dsi);
+ }
+ 

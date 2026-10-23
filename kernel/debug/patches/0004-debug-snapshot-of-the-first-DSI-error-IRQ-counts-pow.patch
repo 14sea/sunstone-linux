@@ -1,0 +1,218 @@
+From cea838673e65ca50f8fdcf3685da488e22f1cfd2 Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 16:47:56 +0100
+Subject: [PATCH 4/7] debug: snapshot of the first DSI error, IRQ counts,
+ power-on context; Lucid latch details
+
+Read with cat /sys/module/msm/parameters/sunstone_dsi_snap; the error worker prints it once.
+---
+ drivers/clk/qcom/clk-alpha-pll.c   |   4 +
+ drivers/gpu/drm/msm/dsi/dsi_host.c | 138 +++++++++++++++++++++++++++--
+ 2 files changed, 137 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/clk/qcom/clk-alpha-pll.c b/drivers/clk/qcom/clk-alpha-pll.c
+index f8313f9d0..15092d1d9 100644
+--- a/drivers/clk/qcom/clk-alpha-pll.c
++++ b/drivers/clk/qcom/clk-alpha-pll.c
+@@ -1821,6 +1821,10 @@ static int __alpha_pll_trion_set_rate(struct clk_hw *hw, unsigned long rate,
+ 	regmap_read(pll->clkr.regmap, PLL_MODE(pll), &val);
+ 	if (!(val & latch_ack)) {
+ 		pr_err("Lucid PLL latch failed. Output may be unstable!\n");
++		/* (sunstone debug) which PLL, to what, from where; the latch bit stays set here */
++		pr_err("sunstone: %s latch failed: rate %lu (rounded %lu) parent %lu, PLL_MODE %#x, l %#x\n",
++		       clk_hw_get_name(hw), rate, rrate, prate, val, l);
++		WARN_ONCE(1, "sunstone: first Lucid PLL latch failure\n");
+ 		return -EINVAL;
+ 	}
+ 
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index b292dfd26..73db91e38 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -4,6 +4,9 @@
+  */
+ 
+ #include <linux/clk.h>
++#include <linux/clk-provider.h>
++#include <linux/moduleparam.h>
++#include <linux/sysfs.h>
+ #include <linux/delay.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
+@@ -1439,6 +1442,93 @@ int dsi_dma_base_get_v2(struct msm_dsi_host *msm_host, uint64_t *dma_base)
+ 	return 0;
+ }
+ 
++/*
++ * (sunstone debug) the first DSI error as the hardware reported it, before dsi_error() clears the
++ * registers, plus interrupt counts and the last power-on and command. Filled in the IRQ handler
++ * without printing; read with cat /sys/module/msm/parameters/sunstone_dsi_snap, and printed once
++ * by the error worker.
++ */
++static struct {
++	bool taken;
++	ktime_t t;
++	u32 intr, fifo, status0, clk_status, ack, timeout, dln0, ctrl, vid_cfg0, lane_status,
++	    dma_base, dma_len, cmd_dma_ctrl;
++	int cpu, pid, system_state;
++	char comm[TASK_COMM_LEN];
++	/* last command handed to the DMA */
++	u8 cmd_type, cmd_data0;
++	int cmd_len;
++	ktime_t cmd_t;
++	/* last power-on (process context) */
++	ktime_t on_t;
++	int on_pid, on_state, on_rpm, on_set_rate, on_enable;
++	char on_comm[TASK_COMM_LEN];
++	unsigned long on_byte, on_pixel, on_esc;
++	const char *on_byte_parent, *on_pixel_parent;
++	bool printed;
++} sunstone_snap;
++static atomic_t sunstone_err_irqs, sunstone_dma_done, sunstone_video_done;
++
++static int sunstone_snap_get(char *buf, const struct kernel_param *kp)
++{
++	typeof(sunstone_snap) *p = &sunstone_snap;
++	int n = 0;
++
++	n += sysfs_emit_at(buf, n, "irqs: error %d dma_done %d video_done %d\n",
++			   atomic_read(&sunstone_err_irqs), atomic_read(&sunstone_dma_done),
++			   atomic_read(&sunstone_video_done));
++	n += sysfs_emit_at(buf, n, "power on: t %lld us, %s[%d] state %d, rpm %d set_rate %d enable %d, byte %lu (%s) pixel %lu (%s) esc %lu\n",
++			   ktime_to_us(p->on_t), p->on_comm, p->on_pid, p->on_state, p->on_rpm,
++			   p->on_set_rate, p->on_enable, p->on_byte, p->on_byte_parent ?: "-",
++			   p->on_pixel, p->on_pixel_parent ?: "-", p->on_esc);
++	n += sysfs_emit_at(buf, n, "last cmd: t %lld us, type %#x data0 %#x len %d\n",
++			   ktime_to_us(p->cmd_t), p->cmd_type, p->cmd_data0, p->cmd_len);
++	if (!p->taken)
++		return n + sysfs_emit_at(buf, n, "first error: none\n");
++	n += sysfs_emit_at(buf, n, "first error: t %lld us, cpu %d, interrupted %s[%d], system_state %d\n",
++			   ktime_to_us(p->t), p->cpu, p->comm, p->pid, p->system_state);
++	n += sysfs_emit_at(buf, n, "  INTR_CTRL %08x FIFO_STATUS %08x STATUS0 %08x CLK_STATUS %08x\n",
++			   p->intr, p->fifo, p->status0, p->clk_status);
++	n += sysfs_emit_at(buf, n, "  ACK_ERR %08x TIMEOUT %08x DLN0_PHY_ERR %08x LANE_STATUS %08x\n",
++			   p->ack, p->timeout, p->dln0, p->lane_status);
++	n += sysfs_emit_at(buf, n, "  CTRL %08x VID_CFG0 %08x CMD_DMA_CTRL %08x DMA_BASE %08x DMA_LEN %08x\n",
++			   p->ctrl, p->vid_cfg0, p->cmd_dma_ctrl, p->dma_base, p->dma_len);
++	return n;
++}
++
++static const struct kernel_param_ops sunstone_snap_ops = {
++	.get = sunstone_snap_get,
++};
++module_param_cb(sunstone_dsi_snap, &sunstone_snap_ops, NULL, 0444);
++
++static void sunstone_snap_take(struct msm_dsi_host *msm_host, u32 isr)
++{
++	typeof(sunstone_snap) *p = &sunstone_snap;
++
++	atomic_inc(&sunstone_err_irqs);
++	if (p->taken)
++		return;
++	p->t = ktime_get();
++	p->intr = isr;
++	p->fifo = dsi_read(msm_host, REG_DSI_FIFO_STATUS);
++	p->status0 = dsi_read(msm_host, REG_DSI_STATUS0);
++	p->clk_status = dsi_read(msm_host, REG_DSI_CLK_STATUS);
++	p->ack = dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS);
++	p->timeout = dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS);
++	p->dln0 = dsi_read(msm_host, REG_DSI_DLN0_PHY_ERR);
++	p->ctrl = dsi_read(msm_host, REG_DSI_CTRL);
++	p->vid_cfg0 = dsi_read(msm_host, REG_DSI_VID_CFG0);
++	p->lane_status = dsi_read(msm_host, REG_DSI_LANE_STATUS);
++	p->cmd_dma_ctrl = dsi_read(msm_host, REG_DSI_CMD_DMA_CTRL);
++	p->dma_base = dsi_read(msm_host, REG_DSI_DMA_BASE);
++	p->dma_len = dsi_read(msm_host, REG_DSI_DMA_LEN);
++	p->cpu = raw_smp_processor_id();
++	p->pid = current->pid;
++	p->system_state = system_state;
++	strscpy(p->comm, current->comm);
++	p->taken = true;
++}
++
+ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
+ {
+ 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
+@@ -1552,6 +1642,10 @@ static int dsi_cmds2buf_tx(struct msm_dsi_host *msm_host,
+ 		return -EINVAL;
+ 	}
+ 
++	sunstone_snap.cmd_t = ktime_get();
++	sunstone_snap.cmd_type = msg->type;
++	sunstone_snap.cmd_data0 = msg->tx_len ? *(u8 *)msg->tx_buf : 0;
++	sunstone_snap.cmd_len = len;
+ 	ret = dsi_cmd_dma_tx(msm_host, len);
+ 	if (ret < 0) {
+ 		pr_err("%s: cmd dma tx failed, type=0x%x, data0=0x%x, len=%d, ret=%d\n",
+@@ -1573,6 +1667,16 @@ static void dsi_err_worker(struct work_struct *work)
+ 	u32 status = msm_host->err_work_state;
+ 
+ 	pr_err_ratelimited("%s: status=%x\n", __func__, status);
++	if (sunstone_snap.taken && !sunstone_snap.printed) {
++		char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
++
++		sunstone_snap.printed = true;
++		if (buf) {
++			sunstone_snap_get(buf, NULL);
++			pr_err("sunstone dsi snapshot:\n%s", buf);
++			kfree(buf);
++		}
++	}
+ 	if (status & DSI_ERR_STATE_MDP_FIFO_UNDERFLOW)
+ 		dsi_sw_reset(msm_host);
+ 
+@@ -1697,14 +1801,20 @@ static irqreturn_t dsi_host_irq(int irq, void *ptr)
+ 
+ 	DBG("isr=0x%x, id=%d", isr, msm_host->id);
+ 
+-	if (isr & DSI_IRQ_ERROR)
++	if (isr & DSI_IRQ_ERROR) {
++		sunstone_snap_take(msm_host, isr);
+ 		dsi_error(msm_host);
++	}
+ 
+-	if (isr & DSI_IRQ_VIDEO_DONE)
++	if (isr & DSI_IRQ_VIDEO_DONE) {
++		atomic_inc(&sunstone_video_done);
+ 		complete(&msm_host->video_comp);
++	}
+ 
+-	if (isr & DSI_IRQ_CMD_DMA_DONE)
++	if (isr & DSI_IRQ_CMD_DMA_DONE) {
++		atomic_inc(&sunstone_dma_done);
+ 		complete(&msm_host->dma_comp);
++	}
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -2511,10 +2621,28 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+ 		goto unlock_ret;
+ 	}
+ 
+-	pm_runtime_get_sync(&msm_host->pdev->dev);
++	sunstone_snap.on_rpm = pm_runtime_get_sync(&msm_host->pdev->dev);
+ 	ret = cfg_hnd->ops->link_clk_set_rate(msm_host);
+-	if (!ret)
++	sunstone_snap.on_set_rate = ret;
++	sunstone_snap.on_enable = 0;
++	if (!ret) {
+ 		ret = cfg_hnd->ops->link_clk_enable(msm_host);
++		sunstone_snap.on_enable = ret;
++	}
++	sunstone_snap.on_t = ktime_get();
++	sunstone_snap.on_pid = current->pid;
++	sunstone_snap.on_state = system_state;
++	strscpy(sunstone_snap.on_comm, current->comm);
++	sunstone_snap.on_byte = clk_get_rate(msm_host->byte_clk);
++	sunstone_snap.on_pixel = clk_get_rate(msm_host->pixel_clk);
++	sunstone_snap.on_esc = clk_get_rate(msm_host->esc_clk);
++	sunstone_snap.on_byte_parent = __clk_get_name(clk_get_parent(msm_host->byte_clk));
++	sunstone_snap.on_pixel_parent = __clk_get_name(clk_get_parent(msm_host->pixel_clk));
++	pr_info("sunstone dsi power on: %s[%d] state %d rpm %d set_rate %d enable %d byte %lu (%s) pixel %lu (%s) esc %lu\n",
++		sunstone_snap.on_comm, sunstone_snap.on_pid, sunstone_snap.on_state,
++		sunstone_snap.on_rpm, sunstone_snap.on_set_rate, sunstone_snap.on_enable,
++		sunstone_snap.on_byte, sunstone_snap.on_byte_parent ?: "-",
++		sunstone_snap.on_pixel, sunstone_snap.on_pixel_parent ?: "-", sunstone_snap.on_esc);
+ 	if (ret) {
+ 		pr_err("%s: failed to enable link clocks. ret=%d\n",
+ 		       __func__, ret);

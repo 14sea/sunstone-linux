@@ -1,0 +1,22 @@
+From 9ec9747aab886a6139084a3c15cfc518a997e193 Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 16:47:56 +0100
+Subject: [PATCH 5/7] debug: drop the asynchronous probe again (boot-57 hung:
+ PID 1 waits for it before /init)
+
+---
+ drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+index c460ba134..e99d0e717 100644
+--- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
++++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+@@ -438,7 +438,6 @@ static struct mipi_dsi_driver m17_driver = {
+ 	.driver = {
+ 		.name = "panel-xiaomi-m17-38-0c-0a",
+ 		.of_match_table = m17_of_match,
+-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+ 	},
+ };
+ module_mipi_dsi_driver(m17_driver);

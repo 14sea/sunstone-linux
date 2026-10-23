@@ -1,0 +1,50 @@
+From 217877647cdbb7e058e79ca37b4940c1681af2ef Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 16:41:27 +0100
+Subject: [PATCH 3/7] debug: msm sunstone_keepfb (keep simpledrm and/or skip
+ the fbdev client)
+
+1: keep simpledrm, no fbdev client; 2: remove simpledrm, no fbdev client; 3: keep simpledrm,
+fbdev client as usual (boot-47, -49, -51).
+---
+ drivers/gpu/drm/msm/msm_kms.c | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/msm_kms.c b/drivers/gpu/drm/msm/msm_kms.c
+index e5d0ea629..131148487 100644
+--- a/drivers/gpu/drm/msm/msm_kms.c
++++ b/drivers/gpu/drm/msm/msm_kms.c
+@@ -260,6 +260,13 @@ void msm_drm_kms_uninit(struct device *dev)
+ 		kms->funcs->destroy(kms);
+ }
+ 
++/*
++ * (sunstone debug) 1: keep simpledrm and its fbcon, no fbdev client (no modeset at bind);
++ * 2: remove simpledrm, no fbdev client; 3: keep simpledrm, fbdev client as usual
++ */
++static int sunstone_keepfb;
++module_param(sunstone_keepfb, int, 0444);
++
+ int msm_drm_kms_init(struct device *dev, const struct drm_driver *drv)
+ {
+ 	struct msm_drm_private *priv = dev_get_drvdata(dev);
+@@ -269,7 +276,8 @@ int msm_drm_kms_init(struct device *dev, const struct drm_driver *drv)
+ 	int ret;
+ 
+ 	/* the fw fb could be anywhere in memory */
+-	ret = aperture_remove_all_conflicting_devices(drv->name);
++	ret = (sunstone_keepfb == 1 || sunstone_keepfb == 3) ? 0 :
++	      aperture_remove_all_conflicting_devices(drv->name);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -384,5 +392,8 @@ void msm_drm_kms_post_init(struct device *dev)
+ 	struct drm_device *ddev = priv->dev;
+ 
+ 	drm_kms_helper_poll_init(ddev);
+-	drm_client_setup(ddev, NULL);
++	if (sunstone_keepfb == 1 || sunstone_keepfb == 2)
++		pr_emerg("sunstone: msm bound, keepfb %d, no fbdev client\n", sunstone_keepfb);
++	else
++		drm_client_setup(ddev, NULL);
+ }

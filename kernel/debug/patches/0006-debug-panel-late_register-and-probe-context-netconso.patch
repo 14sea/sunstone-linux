@@ -1,0 +1,73 @@
+From 42c1d37b5048f2f0959e80e5a32345bf1e515535 Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 17:11:46 +0100
+Subject: [PATCH 6/7] debug: panel late_register and probe context; netconsole
+ cmdline targets wait for their device
+
+---
+ .../gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c | 25 ++++++++++++++++++-
+ drivers/net/netconsole.c                      |  7 ++++++
+ 2 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+index e99d0e717..11bf893f7 100644
+--- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
++++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
+@@ -413,7 +413,8 @@ static int m17_probe(struct mipi_dsi_device *dsi)
+ 	ret = devm_add_action_or_reset(dev, m17_debug_ctx_clear, NULL);
+ 	if (ret)
+ 		return ret;
+-	dev_info(dev, "probe, attach_delay_ms %u\n", attach_delay_ms);
++	dev_info(dev, "probe, attach_delay_ms %u, in %s[%d], system_state %d\n", attach_delay_ms,
++		 current->comm, current->pid, system_state);
+ 
+ 	if (attach_delay_ms) {
+ 		queue_delayed_work(system_dfl_wq, &ctx->attach_work, msecs_to_jiffies(attach_delay_ms));
+@@ -440,7 +441,29 @@ static struct mipi_dsi_driver m17_driver = {
+ 		.of_match_table = m17_of_match,
+ 	},
+ };
++#ifdef MODULE
+ module_mipi_dsi_driver(m17_driver);
++#else
++/*
++ * (debug) late_register=1 registers the driver at late_initcall instead of device_initcall: the
++ * probe (and the synchronous attach in it) still runs in kernel init, but after the net and USB
++ * initcalls, so netconsole over a built-in USB gadget can already see it.
++ */
++static bool late_register;
++module_param(late_register, bool, 0444);
++
++static int __init m17_init(void)
++{
++	return late_register ? 0 : mipi_dsi_driver_register(&m17_driver);
++}
++device_initcall(m17_init);
++
++static int __init m17_init_late(void)
++{
++	return late_register ? mipi_dsi_driver_register(&m17_driver) : 0;
++}
++late_initcall(m17_init_late);
++#endif
+ 
+ MODULE_DESCRIPTION("DRM driver for the Xiaomi m17 38 0c 0a DSC video mode AMOLED panel (sunstone)");
+ MODULE_LICENSE("GPL");
+diff --git a/drivers/net/netconsole.c b/drivers/net/netconsole.c
+index b358e5c36..5cbe13ae3 100644
+--- a/drivers/net/netconsole.c
++++ b/drivers/net/netconsole.c
+@@ -2669,6 +2669,13 @@ static struct netconsole_target *alloc_param_target(char *target_config,
+ 			 * otherwise, keep the target in the list, but disabled.
+ 			 */
+ 			goto fail;
++		/*
++		 * (sunstone debug) the device (a built-in USB gadget's usb0) may come later: deactivated
++		 * targets are resumed when a device of that name registers.
++		 */
++		nt->state = STATE_DEACTIVATED;
++		pr_info("netconsole: %s%d waits for %s\n", NETCONSOLE_PARAM_TARGET_PREFIX,
++			cmdline_count, nt->np.dev_name);
+ 	} else {
+ 		nt->state = STATE_ENABLED;
+ 	}

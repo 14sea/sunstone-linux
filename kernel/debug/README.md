@@ -1,0 +1,34 @@
+# Kernel debugging aids
+
+Not used by `tools/build-kernel.sh` unless asked for. Written for the M6 built-in panel hang
+(LOG.md boot-34 to 81), kept for the next early-boot problem.
+
+## `patches/`
+
+The kernel tree's `debug/panel-early-bind` branch on top of `sunstone`, exported with
+`git format-patch sunstone..debug/panel-early-bind`. Apply them to a branch above `sunstone` with
+`git am` to get the same kernel back:
+
+| Patch | What |
+| --- | --- |
+| 0001, 0002, 0005 | panel: `attach_delay_ms` / `attach_now` (attach from a workqueue, or when the initramfs asks), unbind/bind support, logging around prepare and the attach |
+| 0003 | msm: `msm.sunstone_keepfb=1/2/3` keeps simpledrm and/or skips the fbdev client |
+| 0004 | msm DSI: snapshot of the first DSI error before the registers are cleared, IRQ counts, the power-on context (`cat /sys/module/msm/parameters/sunstone_dsi_snap`); Lucid PLL latch failures name the PLL and print a stack |
+| 0006 | panel: `late_register`, probe context in the log; netconsole: command-line targets wait for their device |
+| 0007 | netconsole at `device_initcall`, so a probe that blocks `deferred_probe_initcall` cannot keep it from starting |
+
+## Kernel log during kernel init
+
+The normal netconsole starts in the initramfs (after the USB gadget is set up there), so a hang in
+kernel init leaves no log, and pstore records do not survive the reset in readable form. With
+patches 0006 and 0007, `EXTRA_CONFIG=kernel/debug/m6-display.config` (built-in `g_ncm` gadget,
+hung-task reports, deferred fbcon takeover, a large console font) and these extra boot arguments,
+the log reaches the test host's netconsole capture from about 0.6 s on:
+
+    g_ncm.dev_addr=02:53:4e:00:00:02 g_ncm.host_addr=02:53:4e:00:00:01
+    netconsole=@192.168.7.2/usb0,6666@192.168.7.1/02:53:4e:00:00:01
+
+The MACs are the same as the initramfs gadget's, so the test host's interface name and capture do
+not change; `initramfs/init-m6` sees the kernel gadget and the command-line target and skips its own.
+`tools/run-exp.sh STAGE N` flashes one experiment image and stages the saved boot-58 image as the
+restore for the next fastboot.
