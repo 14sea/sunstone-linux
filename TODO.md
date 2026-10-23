@@ -1,6 +1,6 @@
 # sunstone Linux 待辦
 
-按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。
+按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在在 M6（圖形桌面）。
 
 ## 遺留問題（M4 結束時，2026-10-22）
 
@@ -51,7 +51,18 @@
       分區提取（lpextract + erofs），這樣才能重現。
 - [ ] GPU 最高 650 MHz：速度檔 148 下游可到 700 MHz，但 gpucc 的頻率表沒有 700。
 - [ ] boot-22（無 GPU 節點）有一次無日誌的啟動失敗，原因未明；netconsole 已就緒，再出現時能看到。
-- [ ] 顯示仍是 ABL 的 splash（simpledrm）：不能調亮度、不能熄屏；要做 MDSS/DPU/DSI + 面板驅動。
+- [x] 真正的顯示驅動（MDSS/DPU/DSI + 面板，2026-10-23 屏幕正常）：面板驅動發完整的下游上電序列，DSC 切片高度 40。
+- [ ] **面板驅動編進內核時開機不到 1 s 硬復位**（boot-34；二分 boot-35–37 表明需要面板參與）：現在
+      `CONFIG_DRM_PANEL_XIAOMI_M17_38_0C_0A=m`，開機後手動 `insmod /root/panel.ko` 再 `systemctl restart phosh`。
+      嫌疑：面板 prepare 和 regulator 的 boot-on/關閉時序（`panel_avdd: disabling` 在 31 s 出現）、接管 ABL splash 時
+      simpledrm 和 msm 的交接、或開機時面板還在 ABL 的狀態下又被重新上電。查法：內置面板 + netconsole 提前到
+      initramfs 之前（`netconsole=` 內核參數或 earlycon），或先用新的上電序列再試一次內置（舊序列可能就是原因）。
+      修好後改回 `=y`，rootfs 裡不再需要 /root/panel.ko。
+- [ ] 熄屏/亮屏：Phosh 熄屏後 bl_power 4，再寫亮度報 EINVAL；按鍵喚醒沒反應。查 logind `HandlePowerKey=ignore`
+      是否擋住了 Phosh 處理電源鍵，以及面板 disable/enable 之後能否重新亮起。
+- [ ] 面板的 60 Hz 模式（下游 dfps 120/60）、亮度曲線（`bl-inverted-dbv`、最小亮度 4）、HBM/調光命令。
+- [ ] phoc 打印「No panel found for compatibles」：gmobile 的面板數據庫裡沒有 sunstone（圓角/挖孔），可以給 gmobile 提交。
+- [ ] DTS：`qcom,mdss-dsc-slice-height` 的坑記在面板驅動裡；m6e/m6f/m6g 二分樹在穩定後刪掉。
 - [ ] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。
 
 ## 以後
@@ -62,6 +73,6 @@
 - [ ] 熱管理：tsens 已有溫度，CPU 冷卻設備和電池溫度保護（充電器 JEITA）。
 - [ ] PMK8350 ADC 通道、PM6125 溫度報警的閾值。
 - [x] RTC 偏移：timesyncd 經 Wi-Fi 對時，`rtc-offset-save.path` 在對時後保存偏移（M5）。
-- [ ] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要 測試主機的 SOCKS 隧道。
+- [ ] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要測試主機的 SOCKS 隧道。
 - [ ] 內核模塊：現在所有驅動都編進內核，rootfs 裡沒有 `/lib/modules`；以後要裝模塊（`modules_install` + 推送）。
 - [ ] 每個里程碑的 DTS 是串聯 include 的（m4 → m3 → m2）；穩定後合併成一個板級 `sm4375-xiaomi-sunstone.dts`。

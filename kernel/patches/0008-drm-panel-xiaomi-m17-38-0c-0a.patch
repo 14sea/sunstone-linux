@@ -2,7 +2,8 @@ drm/panel: add the Xiaomi m17 38 0c 0a DSC panel (sunstone)
 
 sunstone-linux local patch. Generated with linux-mdss-dsi-panel-driver-generator from the downstream
 qcom,mdss_dsi_m17_38_0c_0a_fhdp_dsc_vid node, plus supplies, an off sequence, two DSC slices per
-packet and a moderate initial brightness.
+packet and a moderate initial brightness. DSC is set up the DDIC's way (9D 01, then the PPS through
+9E) with slice height 40: the downstream PPS table says 40, its slice-height property says 20.
 
 --- a/drivers/gpu/drm/panel/Kconfig
 +++ b/drivers/gpu/drm/panel/Kconfig
@@ -35,15 +36,15 @@ packet and a moderate initial brightness.
  obj-$(CONFIG_DRM_PANEL_XINPENG_XPP055C272) += panel-xinpeng-xpp055c272.o
 --- a/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
 +++ b/drivers/gpu/drm/panel/panel-xiaomi-m17-38-0c-0a.c
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,385 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Xiaomi Redmi Note 12 5G (sunstone) "m17 38 0c 0a" 1080x2400 AMOLED panel, video mode, DSC 1.1.
 + *
 + * Generated with linux-mdss-dsi-panel-driver-generator from the downstream device tree
 + * (qcom,mdss_dsi_m17_38_0c_0a_fhdp_dsc_vid), then: supplies (vddio, avdd), an off sequence
-+ * (downstream has none), two DSC slices per packet (qcom,mdss-dsc-slice-per-pkt = 2) and a
-+ * moderate initial brightness. The command set (F0/F1 5A 5A test keys) is a Samsung DDIC's.
++ * (downstream has none), two DSC slices per packet (qcom,mdss-dsc-slice-per-pkt = 2), the PPS
++ * computed by the host instead of the fixed one and a moderate initial brightness. The command set (F0/F1 5A 5A test keys) is a Samsung DDIC's.
 + */
 +
 +#include <linux/backlight.h>
@@ -89,6 +90,37 @@ packet and a moderate initial brightness.
 +	usleep_range(10000, 11000);
 +}
 +
++/*
++ * The downstream on-sequence sets DSC up with the DDIC's own commands: 9D 01 (compression on) and
++ * 9E with the first 89 bytes of the PPS, a fixed table for slice height 40. This sends the PPS the
++ * host computed (the DPU encodes with it) and warns if it no longer matches that table.
++ */
++static const u8 m17_downstream_pps[89] = {
++	0x11, 0x00, 0x00, 0x89, 0x30, 0x80, 0x09, 0x60, 0x04, 0x38, 0x00, 0x28,
++	0x02, 0x1c, 0x02, 0x1c, 0x02, 0x00, 0x02, 0x0e, 0x00, 0x20, 0x03, 0xdd,
++	0x00, 0x07, 0x00, 0x0c, 0x02, 0x77, 0x02, 0x8b, 0x18, 0x00, 0x10, 0xf0,
++	0x03, 0x0c, 0x20, 0x00, 0x06, 0x0b, 0x0b, 0x33, 0x0e, 0x1c, 0x2a, 0x38,
++	0x46, 0x54, 0x62, 0x69, 0x70, 0x77, 0x79, 0x7b, 0x7d, 0x7e, 0x01, 0x02,
++	0x01, 0x00, 0x09, 0x40, 0x09, 0xbe, 0x19, 0xfc, 0x19, 0xfa, 0x19, 0xf8,
++	0x1a, 0x38, 0x1a, 0x78, 0x1a, 0xb6, 0x2a, 0xf6, 0x2b, 0x34, 0x2b, 0x74,
++	0x3b, 0x74, 0x6b, 0xf4, 0x00,
++};
++
++static void m17_write_pps(struct m17_panel *ctx, struct mipi_dsi_multi_context *dsi_ctx)
++{
++	struct drm_dsc_picture_parameter_set pps;
++	u8 buf[1 + sizeof(m17_downstream_pps)];
++
++	drm_dsc_pps_payload_pack(&pps, &ctx->dsc);
++	buf[0] = 0x9e;
++	memcpy(buf + 1, &pps, sizeof(m17_downstream_pps));
++	if (memcmp(buf + 1, m17_downstream_pps, sizeof(m17_downstream_pps)))
++		dev_warn(&ctx->dsi->dev, "PPS differs from the downstream table: %*ph %*ph\n",
++			 64, buf + 1, (int)sizeof(m17_downstream_pps) - 64, buf + 1 + 64);
++
++	mipi_dsi_dcs_write_buffer_multi(dsi_ctx, buf, sizeof(buf));
++}
++
 +static int m17_on(struct m17_panel *ctx)
 +{
 +	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
@@ -106,8 +138,43 @@ packet and a moderate initial brightness.
 +	mipi_dsi_msleep(&dsi_ctx, 20);
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb2, 0x01, 0x31);
-+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf,
-+				     0x09, 0x30, 0x95, 0x43, 0xa9, 0x43, 0xa9);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf, 0x09, 0x30, 0x95, 0x43, 0xa9, 0x43, 0xa9);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x9d, 0x01);
++	m17_write_pps(ctx, &dsi_ctx);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x60, 0x01);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf7, 0x0b);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x40, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf2, 0x03);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x15, 0xf6);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf6, 0xf0);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x28, 0xf6);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf6, 0xf0);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x3b, 0xf6);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf6, 0xf0);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x0a, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0x98);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x11, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0xee);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x18, 0xb2);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb2, 0x1c);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xfc, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x11, 0xfe);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xfe, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xfc, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x0d, 0xb2);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb2, 0x05);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x0c, 0xb2);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb2, 0x30);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf7, 0x0b);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf0, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xfc, 0x5a, 0x5a);
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xed, 0x01, 0xcd, 0x00);
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe1, 0x93);
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x06, 0xf4);
@@ -117,7 +184,7 @@ packet and a moderate initial brightness.
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x28);
 +	mipi_dsi_dcs_set_display_brightness_multi(&dsi_ctx, 0x0000);
 +	mipi_dsi_msleep(&dsi_ctx, 100);
-+	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++	/* display on (0x29) is in .enable */
 +
 +	return dsi_ctx.accum_err;
 +}
@@ -126,9 +193,7 @@ packet and a moderate initial brightness.
 +{
 +	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 +
-+	/* not in the downstream DT: the standard DCS sequence */
-+	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
-+	mipi_dsi_msleep(&dsi_ctx, 20);
++	/* not in the downstream DT: the standard DCS sequence (display off is in .disable) */
 +	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
 +	mipi_dsi_msleep(&dsi_ctx, 120);
 +
@@ -139,7 +204,6 @@ packet and a moderate initial brightness.
 +{
 +	struct m17_panel *ctx = to_m17_panel(panel);
 +	struct device *dev = &ctx->dsi->dev;
-+	struct drm_dsc_picture_parameter_set pps;
 +	int ret;
 +
 +	ret = regulator_bulk_enable(ARRAY_SIZE(m17_supplies), ctx->supplies);
@@ -157,22 +221,6 @@ packet and a moderate initial brightness.
 +		dev_err(dev, "Failed to initialize panel: %d\n", ret);
 +		goto err;
 +	}
-+
-+	drm_dsc_pps_payload_pack(&pps, &ctx->dsc);
-+
-+	ret = mipi_dsi_picture_parameter_set(ctx->dsi, &pps);
-+	if (ret < 0) {
-+		dev_err(dev, "Failed to transmit PPS: %d\n", ret);
-+		goto err;
-+	}
-+
-+	ret = mipi_dsi_compression_mode(ctx->dsi, true);
-+	if (ret < 0) {
-+		dev_err(dev, "Failed to enable compression mode: %d\n", ret);
-+		goto err;
-+	}
-+
-+	msleep(28);
 +
 +	return 0;
 +
@@ -198,6 +246,27 @@ packet and a moderate initial brightness.
 +	return 0;
 +}
 +
++static int m17_enable(struct drm_panel *panel)
++{
++	struct m17_panel *ctx = to_m17_panel(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++
++	return dsi_ctx.accum_err;
++}
++
++static int m17_disable(struct drm_panel *panel)
++{
++	struct m17_panel *ctx = to_m17_panel(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 20);
++
++	return dsi_ctx.accum_err;
++}
++
 +static const struct drm_display_mode m17_mode = {
 +	.clock = (1080 + 120 + 28 + 120) * (2400 + 20 + 2 + 10) * 120 / 1000,
 +	.hdisplay = 1080,
@@ -220,6 +289,8 @@ packet and a moderate initial brightness.
 +
 +static const struct drm_panel_funcs m17_panel_funcs = {
 +	.prepare = m17_prepare,
++	.enable = m17_enable,
++	.disable = m17_disable,
 +	.unprepare = m17_unprepare,
 +	.get_modes = m17_get_modes,
 +};
@@ -323,7 +394,8 @@ packet and a moderate initial brightness.
 +	dsi->dsc = &ctx->dsc;
 +	ctx->dsc.dsc_version_major = 1;
 +	ctx->dsc.dsc_version_minor = 1;
-+	ctx->dsc.slice_height = 20;
++	/* downstream qcom,mdss-dsc-slice-height says 20, the PPS it sends says 40 */
++	ctx->dsc.slice_height = 40;
 +	ctx->dsc.slice_width = 540;
 +	ctx->dsc.slice_count = 1080 / ctx->dsc.slice_width;
 +	ctx->dsc.bits_per_component = 8;

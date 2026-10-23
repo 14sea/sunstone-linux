@@ -29,3 +29,10 @@
 | 23–30 | 2026-10-22 | netconsole（initramfs 配置，測試主機 tcpdump 抓包）；Phosh 暫停自啟；逐步加 `pr_emerg` 斷點（含 20 ms 延時保證送出） | 速度檔熔絲是 **148**（主線表裡沒有 → OPP 不過濾，GPU 會以 900 MHz 起步）→ 補丁 0007 加 148；DT 的 `iommus` 多寫了一個單元。手動 `eglinfo` 仍硬復位：斷點顯示 SQE 微碼加載和 SMMU 映射都正常，最後的活動在 `adreno_runtime_resume`，`a6xx_pm_resume` 從未進入 → **主線 sm6375 條目用的是帶真 GMU 的 `a6xx_gpu_funcs`**，a6xx_gmu_pm_resume 去啟動不存在的 GMU | netconsole.log（測試主機） |
 | 31 | 2026-10-22 | 補丁 0007：sm6375 改用 `a6xx_gmuwrapper_funcs`、去掉 GMU 固件；斷點全部還原；`41bf7fb476ac6320` | **GPU 正常**：`eglinfo` → freedreno FD619，OpenGL 4.6（Mesa 26.2.5）。告警「No per-process page tables」 | — |
 | 32 | 2026-10-22 | GPU SMMU 加 `qcom,adreno-smmu` compatible；`b990e13e58dc587d` | 沒有告警；phoc 用 GPU 渲染（`WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128`，GL renderer FD619），經 simpledrm 顯示；Phosh 恢復自啟 | — |
+| 33 | 2026-10-22 | M6 顯示：dispcc、MDSS/DPU/DSI/PHY 節點、面板驅動（補丁 0008）編進內核（m6d） | dispcc 探測失敗 `disp_cc_sleep_clk status stuck at 'off'`（-EBUSY），顯示鏈沒起來，系統正常 → 補丁 0009（sleep/xo 分支的 halt_reg） | — |
+| 34 | 2026-10-22 | 補丁 0009 | dispcc 正常註冊，但開機不到 1 s 硬復位：netconsole 還沒配置，pstore 為空 | — |
+| 35 | 2026-10-22 | 二分：只有 dispcc，`&mdss` 禁用（m6e）；`87ab42abe66cfef5` | 正常啟動 → 問題在 MDSS/DPU/DSI/面板 | — |
+| 36 | 2026-10-22 | 二分：MDSS + DPU，DSI 和 PHY 禁用（m6f）；`b0653f7ccebdad9a` | 正常：msm 識別 DPU 0x60090000（6.9），GPU 綁定，card1 + renderD128 | — |
+| 37 | 2026-10-22 | 二分：DSI + PHY 開，面板節點禁用（m6g）；`f223fd363743bcdd` | 正常 → 崩潰需要面板驅動參與 | — |
+| 38 | 2026-10-22 | m6d，面板改成模塊（`=m`），開機後手動 `insmod` 再重啟 phosh；`8d1505ae7aa3b8fd` | 不崩潰；DSI-1 1080x2400@120 modeset 成功、DCS 命令可用，但屏幕全黑，之後綠黑條紋（PPS/壓縮命令挪到退出睡眠之前） | — |
+| — | 2026-10-23 | boot-38 上換模塊（不刷機）：面板驅動改發完整的下游上電序列（含三星 DDIC 的 `9D 01` 壓縮開啟和 `9E` PPS、`60 01` 120 Hz 等），DSC 切片高度 40（下游 PPS 表是 40，DT 屬性寫的 20） | **屏幕顯示正常**（用户確認）：Phosh 經 msm 的 DSI-1 顯示，主機算出的 PPS 和下游表一致，沒有 underrun/DSI 錯誤 | — |
