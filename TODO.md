@@ -90,6 +90,8 @@
 - [ ] 熄屏/亮屏：Phosh 熄屏後 bl_power 4，再寫亮度報 EINVAL；按鍵喚醒沒反應。查 logind `HandlePowerKey=ignore`
       是否擋住了 Phosh 處理電源鍵，以及面板 disable/enable 之後能否重新亮起。
 - [ ] 面板的 60 Hz 模式（下游 dfps 120/60）、亮度曲線（`bl-inverted-dbv`、最小亮度 4）、HBM/調光命令。
+      用户反饋（boot-87）：亮度 80 和 300 看起來差不多（讀回值正確）。查三星 `bl-dcs-type-ss-ea` 和
+      `bl-inverted-dbv` 在下游 dsi_panel.c 裏怎麼換算 51h 的兩個字節（字節序、是否取反），再看整個 4–2047 範圍的實際效果。
 - [ ] phoc 打印「No panel found for compatibles」：gmobile 的面板數據庫裡沒有 sunstone（圓角/挖孔），可以給 gmobile 提交。
 - [ ] DTS：`qcom,mdss-dsc-slice-height` 的坑記在面板驅動裡；m6e/m6f/m6g 二分樹在穩定後刪掉。
 - [ ] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。
