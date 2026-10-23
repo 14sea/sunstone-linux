@@ -7,3 +7,6 @@ downloads/
 host.conf
 # the test host's ssh public key, built into the initramfs
 authorized_keys
+# Python bytecode
+__pycache__/
+*.pyc

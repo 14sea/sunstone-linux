@@ -1,0 +1,5 @@
+# Test-host settings: copy to tools/host.conf (ignored by git) and fill in.
+# The test host is the machine the phone is plugged into (USB network + fastboot).
+HOST=user@test-host          # ssh destination of the test host
+REMOTE_DIR=sunstone-linux     # working directory on the test host, relative to its home
+REMOTE_TOOLS=platform-tools   # Android platform-tools (fastboot) there, relative to its home
