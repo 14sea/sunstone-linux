@@ -12,6 +12,7 @@
  * in the tree as the fallback until msm's KMS takes the framebuffer over.
  */
 #include <dt-bindings/clock/qcom,sm6375-dispcc.h>
+#include <dt-bindings/thermal/thermal.h>
 #include "sm4375-xiaomi-sunstone-m6.dts"
 
 / {
@@ -36,6 +37,19 @@
 	};
 
 	soc@0 {
+		/*
+		 * APSS watchdog, as the downstream qcom,msm-watchdog (0xf410000, bark interrupt SPI 0). Same
+		 * register layout as the KPSS watchdog; the sm6115 node is the model, including the edge
+		 * trigger (level-high, as downstream, storms for the second between bark and bite).
+		 * A bite resets into Linux again (boot-93: 67 s); systemd pets it (RuntimeWatchdogSec).
+		 */
+		watchdog@f410000 {
+			compatible = "qcom,apss-wdt-sm6375", "qcom,kpss-wdt";
+			reg = <0x0 0x0f410000 0x0 0x1000>;
+			clocks = <&sleep_clk>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_EDGE_RISING>;
+		};
+
 		dispcc: clock-controller@5f00000 {
 			compatible = "qcom,sm6375-dispcc";
 			reg = <0x0 0x05f00000 0x0 0x20000>;
@@ -292,5 +306,146 @@
 		power-source = <1>;
 		bias-disable;
 		output-high;
+	};
+};
+
+/*
+ * Cooling maps: sm6375.dtsi has the tsens zones and their trips but binds no cooling device, so the
+ * 90/95 C passive trips did nothing and only the 110 C critical trip (shutdown) acted. From the
+ * first passive trip on, step_wise lowers the A55 policy (cpu0), the A78 policy (cpu6) or the GPU,
+ * re-evaluating every 250 ms while above it (the zones have no polling at all otherwise, so a
+ * trip crossing gave a single step), as sm6115 and sm8250 do.
+ * cpu-unk0/1 (tsens 11, 12) stay unbound: which cores they watch is unknown.
+ */
+
+&{/thermal-zones/cpu0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu0_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu1_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu2-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu2_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu3-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu3_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu4-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu4_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu5-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu5_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cluster0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cluster0_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu6-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu6_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu7-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu7_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cluster1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cluster1_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/gpuss0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&gpuss0_alert0>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/gpuss1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&gpuss1_alert0>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
 	};
 };
