@@ -108,6 +108,9 @@
       未做：`cpu-unk0/1` 未綁定；電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；
       真實高負載下的溫度曲線放到長時間測試裏看。
 - [ ] 長時間穩定性測試（24–48 h）：內存、溫度、Wi-Fi 斷線、內核錯誤；電池在 4.0–4.1 V 之間的小幅循環。
+- [ ] 文本模式下電源鍵只能喚醒屏幕、不能熄屏（Phosh 不在，logind 忽略電源鍵；空閒 120 s 才自動熄）。
+      想法：一個小服務用 `evtest` 監聽 KEY_POWER，屏幕亮著時按下就 `setterm --blank force`（熄着時按鍵本身就喚醒）。
+      穩定性測試之後再做。現在手動熄屏：`TERM=linux setterm --blank force </dev/tty1 >/dev/tty1`。
 - [ ] Wi-Fi 健壯性：路由器重啟後重連；開機時 modem 卡 65 s（見上）。45 次開機統計：約一半一次成功，另一半崩
       1–4 次（每次 65 s，Wi-Fi 最晚 284 s），只在初始化階段；每次 modem 重啟後都有 QRTR ns 的
       `failed to announce new service` / `failed while handling packet from 0:-2`，可能是線索。
