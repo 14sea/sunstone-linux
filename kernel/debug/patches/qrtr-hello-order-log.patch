@@ -1,0 +1,83 @@
+From de9445564c941fb9b15d24e7f949ee4ea8e45b1f Mon Sep 17 00:00:00 2001
+From: 14sea <14sea@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 19:52:28 +0100
+Subject: [PATCH] debug: qrtr HELLO order in the log (verify the HELLO-ahead
+ fix)
+
+---
+ net/qrtr/af_qrtr.c | 11 +++++++++++
+ net/qrtr/ns.c      |  5 ++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/net/qrtr/af_qrtr.c b/net/qrtr/af_qrtr.c
+index 98d6736a7..9e852283b 100644
+--- a/net/qrtr/af_qrtr.c
++++ b/net/qrtr/af_qrtr.c
+@@ -362,6 +362,7 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 	 */
+ 	if (!hello_sent && type != QRTR_TYPE_HELLO) {
+ 		rc = qrtr_send_hello(node);
++		pr_info("qrtr dbg: hello ahead of type %d to %u:%d rc %d\n", type, to->sq_node, to->sq_port, rc);
+ 		if (rc) {
+ 			kfree_skb(skb);
+ 			return rc;
+@@ -397,6 +398,7 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 		rc = -ENODEV;
+ 		if (type == QRTR_TYPE_HELLO && node->hello_sent) {
+ 			/* sent in the meantime by say_hello or ahead of a packet */
++			pr_info("qrtr dbg: second hello to nid %u skipped\n", READ_ONCE(node->nid));
+ 			kfree_skb(skb);
+ 			rc = 0;
+ 		} else if (node->ep) {
+@@ -408,6 +410,10 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 			node->hello_sent = true;
+ 		mutex_unlock(&node->ep_lock);
+ 	}
++	if (type == QRTR_TYPE_HELLO)
++		pr_info("qrtr dbg: hello tx to nid %u rc %d\n", READ_ONCE(node->nid), rc);
++	else if (rc && type != QRTR_TYPE_DATA)
++		pr_info("qrtr dbg: ctrl type %d to %u:%d rc %d\n", type, to->sq_node, to->sq_port, rc);
+ 	/* Need to ensure that a subsequent message carries the otherwise lost
+ 	 * confirm_rx flag if we dropped this one */
+ 	if (rc && confirm_rx)
+@@ -547,6 +553,11 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
+ 
+ 	skb_put_data(skb, data + hdrlen, size);
+ 
++	if (cb->type == QRTR_TYPE_HELLO || cb->type == QRTR_TYPE_BYE)
++		pr_info("qrtr dbg: rx %s from %u:%d (hello_sent %d)\n",
++			cb->type == QRTR_TYPE_HELLO ? "hello" : "bye", cb->src_node,
++			cb->src_port, node->hello_sent);
++
+ 	qrtr_node_assign(node, cb->src_node);
+ 
+ 	if (cb->type == QRTR_TYPE_NEW_SERVER) {
+diff --git a/net/qrtr/ns.c b/net/qrtr/ns.c
+index bcb090ee7..39c25dd7a 100644
+--- a/net/qrtr/ns.c
++++ b/net/qrtr/ns.c
+@@ -218,7 +218,7 @@ static int announce_servers(struct sockaddr_qrtr *sq)
+ 	struct qrtr_server *srv;
+ 	struct qrtr_node *node;
+ 	unsigned long index;
+-	int ret;
++	int ret, n = 0;
+ 
+ 	node = node_get(qrtr_ns.local_node);
+ 	if (!node)
+@@ -232,9 +232,12 @@ static int announce_servers(struct sockaddr_qrtr *sq)
+ 				continue;
+ 
+ 			pr_err("failed to announce new service\n");
++			pr_info("qrtr dbg: announce [0x%x:0x%x] ret %d\n", srv->service, srv->instance, ret);
+ 			return ret;
+ 		}
++		n++;
+ 	}
++	pr_info("qrtr dbg: hello from %u:%d, announced %d servers\n", sq->sq_node, sq->sq_port, n);
+ 	return 0;
+ }
+ 
+-- 
+2.43.0
+

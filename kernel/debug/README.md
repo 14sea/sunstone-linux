@@ -17,6 +17,13 @@ The kernel tree's `debug/panel-early-bind` branch on top of `sunstone`, exported
 | 0006 | panel: `late_register`, probe context in the log; netconsole: command-line targets wait for their device |
 | 0007 | netconsole at `device_initcall`, so a probe that blocks `deferred_probe_initcall` cannot keep it from starting |
 
+## `patches/qrtr-hello-order-log.patch`
+
+Branch `debug/qrtr-fix-verify` on top of `sunstone` (which carries the fix, 0010): logs the HELLO
+received from and sent to each QRTR node, a HELLO sent ahead of a packet, a second HELLO skipped and
+the name service's announce result. Used for the modem init stall (LOG.md boot-102 to 106); the
+loop that cycles the modem is `echo stop/start > /sys/class/remoteproc/remoteproc0/state`.
+
 ## Kernel log during kernel init
 
 The normal netconsole starts in the initramfs (after the USB gadget is set up there), so a hang in

@@ -4,15 +4,12 @@
 
 ## 遺留問題（M4 結束時，2026-10-22）
 
-- [ ] **modem 首次初始化卡住**（M5，boot-17/18）：`DOG detects stalled initialization` 約 65 s 後觸發，remoteproc
-      自動重啟 modem 後正常，Wi-Fi 因此晚約 1 分鐘。內核 #17（boot-16）兩次啟動都沒有，#18 起兩次都有；兩者只差
-      `CONFIG_EXTRA_FIRMWARE`（regdb），服務順序和 EFS 副本相同，可能只是巧合。
-      2026-10-22 跟蹤（`sunstone-modem-trace`，`out/logs/modem-cycles/`）：#18 起 7 次冷啟動卡 5 次，手動 stop/start
-      modem 也會卡 → 和開機時序無關。卡住期間 modem 只註冊了 43.18（SSCTL）和 66.180（servreg notifier），從沒聯繫
-      rmtfs（rmtfs -v 的第一條是崩潰後的 bye），所以卡在讀 EFS 之前；正常時它接著向 PD mapper（64.1）查詢再讀 EFS。
-      嫌疑：PD mapper 的應答或 sysmon/SSCTL 握手。下一步：卡住時抓 QRTR 報文（`qrtr` 沒有 dump 工具，用 tcpdump
-      不行；可以在內核 qcom_pd_mapper 裡加 dev_dbg 看有沒有收到 locator 請求），或換用户態 pd-mapper 對比。做對照：#17 / 去掉 regdb 的 #18 各啟動幾次；
-      卡住期間用 `qrtr-lookup` 看哪些 QMI 服務缺席；對比 tqftpserv 的請求（`ota_firewall/ruleset` 等 readwrite 文件缺失）。
+- [x] **modem 首次初始化卡住**（2026-10-24 修好，補丁 0010，boot-102–106，見 LOG.md）：約一半的開機 modem 卡 65 s
+      （`DOG detects stalled initialization`）、連崩 1–4 次，Wi-Fi 最晚 284 s。根因是 Linux 7.3 qrtr 的 HELLO 握手競態：
+      我們的 HELLO 沒發出前 `qrtr_node_enqueue()` 丟掉其他控制包（-EAGAIN）；modem 的 HELLO 先到時，ns 回給它的本機服務通告
+      （rmtfs、PD mapper、tqftpserv）被丟，`announce_servers()` 不重試，modem 等不到這些服務。修法：這時先當場發 HELLO
+      再發包。驗證：modem stop/start 12/12、重啟 7/7 不卡，Wi-Fi 16–17 s。調試打印在 `kernel/debug/patches/qrtr-hello-order-log.patch`。
+      可以考慮發上游（netdev），要先看最新主線是否已修。
 - [x] **CPU 空閒狀態**（2026-10-22 查明，無需修改）：深度空閒正常，cpu0 開機約 170 s 裡有 155 s 在最深的
       rail power collapse，簇級空閒 S0 在 180 s 裡佔 153 s。三條報錯都是開機 0.2 s 內的一次性告警：PSCI 電源域第一次
       探測被推遲（-517），期間 cpu0 試了一次空閒失敗，0.22 s 以 OSI 模式初始化成功；`failed to set PC mode: -3` 是固件
@@ -111,15 +108,7 @@
 - [ ] 文本模式下電源鍵只能喚醒屏幕、不能熄屏（Phosh 不在，logind 忽略電源鍵；空閒 120 s 才自動熄）。
       想法：一個小服務用 `evtest` 監聽 KEY_POWER，屏幕亮著時按下就 `setterm --blank force`（熄着時按鍵本身就喚醒）。
       穩定性測試之後再做。現在手動熄屏：`TERM=linux setterm --blank force </dev/tty1 >/dev/tty1`。
-- [ ] Wi-Fi 健壯性：路由器重啟後重連；開機時 modem 卡 65 s（見上）。45 次開機統計：約一半一次成功，另一半崩
-      1–4 次（每次 65 s，Wi-Fi 最晚 284 s），只在初始化階段；每次 modem 重啟後都有 QRTR ns 的
-      `failed to announce new service` / `failed while handling packet from 0:-2`，可能是線索。
-      服務器上的影響：開機後 Wi-Fi 最多晚 5 分鐘，運行中穩定。
-      代碼線索：這兩條錯誤來自 net/qrtr/ns.c。modem 重啟後發 HELLO，`announce_servers()` 把本機服務（內核 PD mapper、
-      rmtfs、tqftpserv）逐個通告給它，有一個發送失敗（且不是 -ENODEV）就返回，後面的服務不再通告 → modem 等不到
-      PD mapper/rmtfs，65 s 後自己的看門狗觸發。但第一次啟動時沒有這條錯誤也會卡，要對比成功和卡住時的 QRTR 事件。
-      下一步（穩定性測試之後）：調試內核開 `FTRACE` + qrtr 事件（或在 ns.c 打印發送的返回值和目標），不重啟手機、
-      用 `echo stop/start > /sys/class/remoteproc/remoteproc0/state` 反覆重現（`tools/modem-cycles.sh` 的思路）。
+- [ ] Wi-Fi 健壯性：路由器重啟後重連（未測）。開機時 modem 卡 65 s 的問題已修（見上，補丁 0010）。
 
 ## 以後
 

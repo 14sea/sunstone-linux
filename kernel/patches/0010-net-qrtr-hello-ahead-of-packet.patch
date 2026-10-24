@@ -1,0 +1,145 @@
+net: qrtr: send our HELLO ahead of a packet instead of dropping the packet
+
+qrtr_node_enqueue() drops every packet but HELLO with -EAGAIN until our HELLO
+has gone out, and say_hello runs from a workqueue. When the remote's HELLO
+arrives first, the name service answers it with the list of local servers;
+announce_servers() gets -EAGAIN on the first one and gives up, and nothing
+sends them again. On sunstone (SM4375) the modem then never learns of the
+PD mapper, rmtfs and tqftpserv and its watchdog fires 65 s later with "DOG
+detects stalled initialization"; this happened on about half of the boots,
+1-4 times in a row:
+
+  rx hello from 0:-2 (hello_sent 0)
+  drop type 4 to 0:-2, hello not sent      (NEW_SERVER for rmtfs)
+  failed to announce new service
+  hello tx to nid 0 rc 0                   (0.4 ms later)
+
+Send the HELLO right there when it has not gone out yet, and skip a second
+HELLO when say_hello and a packet race for it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/net/qrtr/af_qrtr.c b/net/qrtr/af_qrtr.c
+index e7b364742..98d6736a7 100644
+--- a/net/qrtr/af_qrtr.c
++++ b/net/qrtr/af_qrtr.c
+@@ -165,6 +165,7 @@ static int qrtr_bcast_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 			      struct sockaddr_qrtr *to);
+ static struct qrtr_sock *qrtr_port_lookup(int port);
+ static void qrtr_port_put(struct qrtr_sock *ipc);
++static int qrtr_send_hello(struct qrtr_node *node);
+ 
+ /* Release node resources and free the node.
+  *
+@@ -348,15 +349,25 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 	struct qrtr_hdr_v1 *hdr;
+ 	size_t len = skb->len;
+ 	int rc, confirm_rx;
++	bool hello_sent;
+ 
+ 	mutex_lock(&node->ep_lock);
+-	if (!node->hello_sent && type != QRTR_TYPE_HELLO) {
+-		mutex_unlock(&node->ep_lock);
+-		kfree_skb(skb);
+-		return -EAGAIN;
+-	}
++	hello_sent = node->hello_sent;
+ 	mutex_unlock(&node->ep_lock);
+ 
++	/* The remote has to see our HELLO before anything else. A packet can come
++	 * first: the name service answers the remote's HELLO with the list of local
++	 * servers, and that HELLO may arrive before say_hello has run. Send our HELLO
++	 * now instead of dropping the packet, which nobody would send again.
++	 */
++	if (!hello_sent && type != QRTR_TYPE_HELLO) {
++		rc = qrtr_send_hello(node);
++		if (rc) {
++			kfree_skb(skb);
++			return rc;
++		}
++	}
++
+ 	confirm_rx = qrtr_tx_wait(node, to->sq_node, to->sq_port, type);
+ 	if (confirm_rx < 0) {
+ 		kfree_skb(skb);
+@@ -384,10 +395,15 @@ static int qrtr_node_enqueue(struct qrtr_node *node, struct sk_buff *skb,
+ 	if (!rc) {
+ 		mutex_lock(&node->ep_lock);
+ 		rc = -ENODEV;
+-		if (node->ep)
++		if (type == QRTR_TYPE_HELLO && node->hello_sent) {
++			/* sent in the meantime by say_hello or ahead of a packet */
++			kfree_skb(skb);
++			rc = 0;
++		} else if (node->ep) {
+ 			rc = node->ep->xmit(node->ep, skb);
+-		else
++		} else {
+ 			kfree_skb(skb);
++		}
+ 		if (!rc && type == QRTR_TYPE_HELLO)
+ 			node->hello_sent = true;
+ 		mutex_unlock(&node->ep_lock);
+@@ -591,36 +607,49 @@ static struct sk_buff *qrtr_alloc_ctrl_packet(struct qrtr_ctrl_pkt **pkt,
+ 	return skb;
+ }
+ 
+-static void qrtr_hello_work(struct work_struct *work)
++/* Send our HELLO to @node; 0 also when it has gone out already */
++static int qrtr_send_hello(struct qrtr_node *node)
+ {
+ 	struct sockaddr_qrtr from = {AF_QIPCRTR, 0, QRTR_PORT_CTRL};
+ 	struct sockaddr_qrtr to = {AF_QIPCRTR, 0, QRTR_PORT_CTRL};
+ 	struct qrtr_ctrl_pkt *pkt;
+-	struct qrtr_node *node;
+ 	struct qrtr_sock *ctrl;
+ 	struct sk_buff *skb;
++	int rc;
+ 
+-	node = container_of(to_delayed_work(work), struct qrtr_node, say_hello);
+-
+-	/* NS must be bound before we can send; retry with backoff if not ready */
++	/* NS must be bound before we can send */
+ 	ctrl = qrtr_port_lookup(QRTR_PORT_CTRL);
+-	if (!ctrl) {
+-		schedule_delayed_work(&node->say_hello, msecs_to_jiffies(100));
+-		return;
+-	}
++	if (!ctrl)
++		return -EAGAIN;
+ 
+ 	skb = qrtr_alloc_ctrl_packet(&pkt, GFP_KERNEL);
+ 	if (!skb) {
+ 		qrtr_port_put(ctrl);
+-		schedule_delayed_work(&node->say_hello, msecs_to_jiffies(100));
+-		return;
++		return -ENOMEM;
+ 	}
+ 
+ 	pkt->cmd = cpu_to_le32(QRTR_TYPE_HELLO);
+ 	from.sq_node = qrtr_local_nid;
+-	to.sq_node = node->nid;
+-	qrtr_node_enqueue(node, skb, QRTR_TYPE_HELLO, &from, &to);
++	to.sq_node = READ_ONCE(node->nid);
++	rc = qrtr_node_enqueue(node, skb, QRTR_TYPE_HELLO, &from, &to);
+ 	qrtr_port_put(ctrl);
++
++	return rc;
++}
++
++static void qrtr_hello_work(struct work_struct *work)
++{
++	struct qrtr_node *node;
++	int rc;
++
++	node = container_of(to_delayed_work(work), struct qrtr_node, say_hello);
++
++	/* NS not bound yet or no memory: retry with backoff (an endpoint that is
++	 * not ready, -EAGAIN from the enqueue, has been rescheduled there already)
++	 */
++	rc = qrtr_send_hello(node);
++	if (rc == -EAGAIN || rc == -ENOMEM)
++		schedule_delayed_work(&node->say_hello, msecs_to_jiffies(100));
+ }
+ 
+ /* Trigger the HELLO handshake after the remote has been reset, eg on resume */
