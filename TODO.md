@@ -70,6 +70,10 @@
       （1120 MHz、747 MHz，parent 19.2 MHz，`PLL_MODE` 0x9000004/5）。失敗分支返回 -EINVAL 且沒清 latch 位；
       `dev_pm_opp_set_rate` 的失敗也沒人檢查，MDP 實際跑在什麼頻率要確認。對照下游 dispcc 的 PLL 配置
       （是否要求 PLL 在改頻時處於某種狀態，或 sm6375 的 Lucid 要用不同的 latch 流程）。
+- [ ] `DSI PLL(0) lock failed, status=0x00000000` / `PLL(0) lock failed`：每次開機兩次（boot-133、134 都有，緊挨着 Lucid
+      PLL 的兩條），顯示正常。可能是 MDSS 復位後 PHY 還沒初始化時就有人要 PLL（同上面的 byte/pclk 告警），一起查。
+- [ ] snap 掛載時 `SQUASHFS error: Xattrs in filesystem, these will be ignored`（兩個 snap，掛載正常）：`sunstone.config` 已加
+      `SQUASHFS_XATTR=y`（Ubuntu 的內核也開），下一次編內核時生效。
 - [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
       panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的
       ECC/dmesg 區從沒進過倉庫裏的 DTS（試驗時是臨時改的）。
@@ -150,7 +154,7 @@
       走 nft 後端。**現在有模塊了**：build-kernel.sh 編譯並安裝到 `out/modules-m6`（含 modules.builtin），
       `tools/push-modules.sh` 推到 `/usr/lib/modules`。在 Arch 上驗證：nft 規則、iptables-nft 的 conntrack/multiport/
       recent/LOG、WireGuard 接口、overlay 掛載、erofs、zram 都可用。
-      沒做：BPF LSM（systemd 報「BPF LSM hook not enabled」，RestrictFileSystems= 不生效；要 BPF_LSM + DEBUG_INFO_BTF）。
+      沒做：BPF LSM（systemd 報「BPF LSM hook not enabled」，RestrictFileSystems= 不生效；要 BPF_LSM + DEBUG_INFO_BTF）。（2026-10-25 做了，見「還不能用的」）
 - [x] **Ubuntu Server 26.04 LTS 裝好並運行**（2026-10-25，boot-124/125，見 LOG.md）：`tools/mkrootfs-ubuntu.sh` 在手機上
       本地構建（debootstrap minbase + 挑選的包，apt pin 禁止 Ubuntu 內核/grub/flash-kernel；rmtfs.service（`-P`，直接用
       EFS 分區）和 qrtr-ns 在裝包前 mask；networkd 直接配，不用 netplan），搬過來 EFS 副本、Wi-Fi、ssh 主機密鑰、
@@ -213,14 +217,33 @@
 
 ## 還不能用的（2026-10-25 整理；以前只寫在別的條目裡）
 
-- [ ] 音頻：揚聲器、聽筒、麥克風、耳機。sm6375.dtsi 有 ADSP 的 remoteproc（`remoteproc_adsp`，lpass glink），板級 DTS 沒啟用；
-      沒有 q6 音頻服務、聲卡和 codec 的描述，要從下游 DT 補。
-- [ ] 攝像頭：sm6375.dtsi 沒有 CAMSS / CCI 節點，傳感器驅動也沒查。
-- [ ] 蜂窩網絡：通話、數據、短信。modem 已經在跑（WLAN 要它），sm6375.dtsi 沒有 IPA（數據通道），也沒配 ModemManager。
-- [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在哪個 DSP 上、要什麼客戶端，沒查。
-- [ ] 指紋（TZ 管的 SPI，GPIO 13–16 保留給 TZ）。
-- [ ] GNOME 設置裡的藍牙頁一直顯示「正在搜索」，不列出設備（bluetoothctl 能掃到並配對）；沒查原因。
-- [ ] BPF LSM：systemd 報「BPF LSM hook not enabled」，`RestrictFileSystems=` 不生效（要 CONFIG_BPF_LSM + DEBUG_INFO_BTF）。
+按這個順序一項項做（2026-10-25 定，依據手機原廠的 live DT，`ios-sunstone/out/dt/sunstone-live.dts`）。用到別人的代碼
+（postmarketOS 補丁、下游驅動、第三方用戶態程序）先通讀、查安全性再用。
+
+- [x] GNOME 設置裡的藍牙頁不列出設備（2026-10-25）：用户打開的是 Lomiri 的 `lomiri-system-settings`（「System Settings」，
+      desktop 文件沒有 OnlyShowIn，在 GNOME 裡也顯示），它的藍牙頁不列設備、配對代理註冊報 Already Exists；bluez 本身正常
+      （StartDiscovery 成功，找到設備）。`add-lomiri.sh` 在 /usr/local/share/applications 放一份 `OnlyShowIn=Lomiri;` 的副本
+      蓋住它。GNOME 自己的「設置」→ 藍牙：用户確認設備都列出來，搜索圈一直轉（頁面開着時一直掃描，正常）。
+- [x] BPF LSM（2026-10-25，boot-134）：`BPF_LSM`、`DEBUG_INFO_BTF`(+模塊)，為此要完整 DWARF（關 `DEBUG_INFO_REDUCED`）和
+      `BPF_EVENTS`（kprobe/uprobe 事件、ftrace；arm64 的 BPF trampoline 掛在動態 ftrace 的函數入口 NOP 上）。
+      `/sys/kernel/security/lsm` 有 bpf，`/sys/kernel/btf/vmlinux` 8 MB，systemd 不再報「BPF LSM hook not enabled」。
+      代價：Image 43 → 63 MB（.BTF 8 MB，其餘是 ftrace 和重定位表），ABL 照常加載（以前最大 51 MB），內存多佔約 20 MB。
+- [x] 振動馬達（2026-10-25，boot-134，用户確認）：下游 `qcom,qpnp-vibrator-ldo-v2` 沒有寄存器，只切 GPIO100 的上拉/下拉；
+      這裡用主線 `gpio-vibrator` 驅動該腳（`vibrator` 節點），input 設備 `gpio-vibrator`（force feedback），
+      `sunstone-vibrate [ms [次數]]`。
+- [x] 紅外發射（2026-10-25，boot-134，用户用相機看到紅外燈在閃）：QUP0 SE2 的 SPI（`spi2`，GPIO45/46/56/57，GPI DMA，要開
+      `gpi_dma0`），`ir-spi-led` 19.2 MHz，`/dev/lirc0`（只發不收）。`ir-ctl -d /dev/lirc0 -S nec:0x0408`（Ubuntu 的
+      `ir-keytable` 包，已加進 build-rootfs.sh）。沒對真的電器測過。
+- [ ] 蜂窩網絡：通話、數據、短信。手機原廠 DT 的 IPA 是 `qcom,ipa-hw-ver = <0x14>`（下游枚舉 = IPA v4.11，主線
+      `drivers/net/ipa` 支持，sc7280 就是 v4.11），0x5800000 / GSI 0x5804000，IRQ SPI 257/259，固件 `ipa_fws`（PAS 15），
+      SMMU 流 0x4a0–0x4a3。**手機裡沒有 SIM 卡**：先只做 IPA 和 modem 握手、rmnet 出現；數據、短信等有卡再測。
+- [ ] 音頻：揚聲器、聽筒、麥克風、耳機。原廠是 ADSP + APR（`qcom,msm-audio-apr`、q6core、q6 dai），LPASS 的 rx/tx/va macro +
+      SoundWire，codec WCD937x（WCD938x 節點是 disabled；主線有 wcd937x 驅動），揚聲器功放 SIA81xx（I2C 0x29，**主線沒有
+      驅動**），聲卡 `qcom,holi-asoc-snd`。sm6375.dtsi 有 ADSP 的 remoteproc，板級 DTS 沒啟用。
+- [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上，要 hexagonrpcd + libssc（postmarketOS，第三方代碼）。
+- [ ] NFC：ST21NFC（I2C 0x08），查主線 st-nci 是否兼容。
+- [ ] 攝像頭：原廠 IFE/OPE/CCI（cam-isp）；主線 CAMSS 不支持 sm6375，sm6375.dtsi 也沒有 CAMSS / CCI 節點。工作量很大，大概率不做。
+- [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
 
 ## 以後
 

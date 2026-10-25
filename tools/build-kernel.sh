@@ -58,7 +58,7 @@ $M defconfig >/dev/null
 "$SRC/scripts/config" --file "$KB/.config" --set-str EXTRA_FIRMWARE_DIR "$ROOT/downloads/firmware"
 $M olddefconfig >/dev/null
 for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS USB_CONFIGFS_NCM PHY_QCOM_USB_SNPS_FEMTO_V2 QCOM_Q6V5_PAS ATH10K_SNOC \
-	SECURITY_APPARMOR OVERLAY_FS PSI; do
+	SECURITY_APPARMOR OVERLAY_FS PSI BPF_LSM DEBUG_INFO_BTF; do
 	grep -q "^CONFIG_$o=y" "$KB/.config" || { echo "CONFIG_$o did not end up =y" >&2; exit 1; }
 done
 $M Image

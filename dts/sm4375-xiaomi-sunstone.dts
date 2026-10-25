@@ -155,6 +155,18 @@
 		};
 	};
 
+	/*
+	 * Vibration motor: an enable on GPIO100. The downstream qcom,qpnp-vibrator-ldo-v2 node has no
+	 * register, only the pin states vib_ldo_active (pull-up) and vib_ldo_suspend (pull-down); here
+	 * the pin is driven instead.
+	 */
+	vibrator {
+		compatible = "gpio-vibrator";
+		enable-gpios = <&tlmm 100 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&vib_en_default>;
+		pinctrl-names = "default";
+	};
+
 	soc@0 {
 		qfprom: efuse@1b40000 {
 			compatible = "qcom,sm6375-qfprom", "qcom,qfprom";
@@ -610,6 +622,10 @@
 	};
 };
 
+&gpi_dma0 {
+	status = "okay";
+};
+
 &gpi_dma1 {
 	status = "okay";
 };
@@ -904,6 +920,21 @@
 		bias-disable;
 		output-low;
 	};
+
+	qup_spi2_default: qup-spi2-default-state {
+		pins = "gpio45", "gpio46", "gpio56", "gpio57";
+		function = "qup02";
+		drive-strength = <6>;
+		bias-disable;
+	};
+
+	vib_en_default: vib-en-default-state {
+		pins = "gpio100";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-low;
+	};
 };
 
 /*
@@ -915,6 +946,22 @@
  * locally administered one (02:53:4e:00:00:11, byte order reversed here) instead of the phone's own
  * from persist, which stays out of this repository; without one the controller stays unconfigured.
  */
+/*
+ * IR transmitter: an LED on the QUP0 SE2 SPI (downstream spi@4a88000, GPIO45/46/56/57, GPI DMA, the
+ * SE in GSI mode), downstream ir-spi-led at 19.2 MHz; the LED is pulsed by the MOSI bit pattern.
+ */
+&spi2 {
+	pinctrl-0 = <&qup_spi2_default>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	irled@0 {
+		compatible = "ir-spi-led";
+		reg = <0>;
+		spi-max-frequency = <19200000>;
+	};
+};
+
 &uart1 {
 	status = "okay";
 

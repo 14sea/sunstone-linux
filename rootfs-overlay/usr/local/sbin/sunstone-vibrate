@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Run the vibration motor (gpio-vibrator input device, DT node vibrator) through force feedback.
+
+  sunstone-vibrate [MS [COUNT]]      default: 3 pulses of 300 ms
+
+The motor is either on or off (GPIO100), so the rumble strength does not matter.
+"""
+import fcntl
+import glob
+import os
+import struct
+import sys
+import time
+
+EV_FF, FF_RUMBLE = 0x15, 0x50
+EVIOCSFF = 0x40304580   # _IOW('E', 0x80, struct ff_effect), 48 bytes on arm64
+
+
+def device():
+    for p in glob.glob('/sys/class/input/event*/device/name'):
+        with open(p) as f:
+            if f.read().strip() == 'gpio-vibrator':
+                return '/dev/input/' + p.split('/')[4]
+    sys.exit('no gpio-vibrator input device')
+
+
+def main():
+    ms = int(sys.argv[1]) if len(sys.argv) > 1 else 300
+    count = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    fd = os.open(device(), os.O_RDWR)
+    # struct ff_effect: type, id (-1: new), direction, trigger, replay {length, delay}; the union at 16
+    effect = bytearray(48)
+    struct.pack_into('<HhHHHHH', effect, 0, FF_RUMBLE, -1, 0, 0, 0, ms, 0)
+    struct.pack_into('<HH', effect, 16, 0xffff, 0xffff)
+    fcntl.ioctl(fd, EVIOCSFF, effect)
+    eid = struct.unpack_from('<h', effect, 2)[0]
+    for _ in range(count):
+        os.write(fd, struct.pack('llHHi', 0, 0, EV_FF, eid, 1))
+        time.sleep(ms / 1000 + 0.4)
+
+
+if __name__ == '__main__':
+    main()

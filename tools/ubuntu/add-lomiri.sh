@@ -21,6 +21,12 @@ ln -sf /dev/null "$R/etc/systemd/system/NetworkManager.service"
 in_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends $PKGS
 in_root systemctl disable -q wpa_supplicant.service NetworkManager-wait-online.service NetworkManager-dispatcher.service 2>/dev/null || true
 in_root id phone >/dev/null 2>&1 || in_root useradd -m -u 1000 -s /bin/bash -G video,render,input,audio phone
+# Lomiri's settings app (its Bluetooth page never lists devices under GNOME) only in Lomiri: a copy
+# in /usr/local/share/applications, which comes first in XDG_DATA_DIRS, shadows the package's entry
+D=lomiri-system-settings.desktop
+install -d "$R/usr/local/share/applications"
+grep -v '^OnlyShowIn=' "$R/usr/share/applications/$D" | sed '/^\[Desktop Entry\]/a OnlyShowIn=Lomiri;' \
+	> "$R/usr/local/share/applications/$D"
 cp -a "$SRC/rootfs-overlay-lomiri/." "$R/"
 (cd "$SRC/rootfs-overlay-lomiri" && find . -mindepth 1) | sed "s|^\.|${R%/}|" | xargs chown -h 0:0
 [ "$R" = / ] && systemctl daemon-reload && systemctl try-restart sunstone-powerkey
