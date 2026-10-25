@@ -1,0 +1,32 @@
+# sunstone: Ubuntu's GNOME session (Wayland) for the desktop user phone (uid 1000) on tty7, as a
+# logind session without a display manager, like lomiri.service. Not started at boot:
+# systemctl start gnome
+[Unit]
+Description=GNOME (Ubuntu session)
+Wants=dbus.socket systemd-logind.service accounts-daemon.service
+After=dbus.socket systemd-logind.service systemd-user-sessions.service accounts-daemon.service
+Conflicts=getty@tty7.service lomiri.service
+After=getty@tty7.service
+
+[Service]
+Type=simple
+# the logind session only becomes active on the foreground VT (tty1 holds the console)
+ExecStartPre=+/usr/bin/chvt 7
+Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_CURRENT_DESKTOP=ubuntu:GNOME XDG_SESSION_DESKTOP=ubuntu DESKTOP_SESSION=ubuntu
+ExecStart=/usr/bin/gnome-session --session=ubuntu
+# back to the text console
+ExecStopPost=+/usr/bin/chvt 1
+User=phone
+WorkingDirectory=~
+PAMName=gnome-sunstone
+TTYPath=/dev/tty7
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=graphical.target

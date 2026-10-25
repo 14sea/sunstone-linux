@@ -163,6 +163,15 @@
       /proc/device-tree/model 找機型配置，沒有時當桌面電腦（grid unit 8、橫屏，**觸摸不起作用**）→ sunstone.yaml
       （phone，GridUnit 26）；repowerd 只支持 Ubuntu Touch 的系統合成器（LSC），Mir 也沒有輸出電源管理協議，所以
       `sunstone-powerkey` 在 `GRAPHICS=1` 時自己熄屏：bl_power 關 + 觸摸屏 input inhibit。
+- [x] **GNOME（Ubuntu 的默認桌面）作為可選桌面**（2026-10-25，用户確認：桌面、頂欄、Dock 都出來，橫屏方向可以，觸摸準確，
+      電源鍵熄屏/亮屏效果很好；「有點卡，但符合預期」）：GNOME Shell 50.1（Wayland），`tools/ubuntu/add-gnome.sh` +
+      `rootfs-overlay-gnome/`，約 270 個包（不帶 snapd、NetworkManager、GDM），`systemctl start gnome`（tty7 上 phone 的
+      logind 會話，和 lomiri.service 互斥）。橫屏：`gdctl set --transform 90`，scale 2.5，系統默認 /etc/xdg/monitors.xml。
+      電源鍵：GNOME 默認彈關機對話框 → gschema override（power-button-action nothing、不鎖屏、不休眠），sunstone-powerkey
+      切換 mutter 的 `PowerSaveMode`（dpms 真正關閉，KMS）並在熄屏時暫停觸摸。沒有 GDM 時 gnome-shell 不提供
+      ScreenShield（org.gnome.ScreenSaver），所以不走屏保。裝包時 polkit 在 polkitd 用户建好前被拉起而失敗，重啟即可。
+- [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619 上；面板的 60 Hz 模式（見 M6 遺留）可能有幫助；
+      沒有 RealtimeKit（KMS 線程拿不到實時優先級）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
       關了，也不顯示鎖屏）；網絡指示器沒有 NetworkManager 不顯示內容；沒有音頻、相機、通話。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。

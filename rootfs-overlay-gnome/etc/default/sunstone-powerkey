@@ -1,0 +1,3 @@
+# sunstone-powerkey: the desktops whose power key it handles in graphics mode (Lomiri here cannot
+# blank the screen itself, GNOME offers only a power-off dialog)
+GRAPHICS="lomiri gnome-shell"

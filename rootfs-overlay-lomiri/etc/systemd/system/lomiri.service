@@ -4,7 +4,7 @@
 Description=Lomiri, Ubuntu Touch's shell
 Wants=dbus.socket systemd-logind.service accounts-daemon.service
 After=dbus.socket systemd-logind.service systemd-user-sessions.service accounts-daemon.service
-Conflicts=getty@tty7.service
+Conflicts=getty@tty7.service gnome.service
 After=getty@tty7.service
 
 [Service]

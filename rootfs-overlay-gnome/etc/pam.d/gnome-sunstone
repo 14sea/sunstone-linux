@@ -1,0 +1,5 @@
+#%PAM-1.0
+# sunstone: the session of gnome.service (user phone on tty7, started by systemd, no password)
+auth      required   pam_permit.so
+account   include    common-account
+session   include    common-session

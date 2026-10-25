@@ -1,0 +1,12 @@
+# sunstone: GNOME defaults for the phone. The power key is sunstone-powerkey's (display off and on
+# through mutter's PowerSaveMode), not GNOME's power-off dialog; no suspend (the system has none);
+# no lock screen (the desktop user phone has no password to unlock it with). After a change:
+# glib-compile-schemas /usr/share/glib-2.0/schemas
+[org.gnome.settings-daemon.plugins.power]
+power-button-action='nothing'
+sleep-inactive-ac-type='nothing'
+sleep-inactive-battery-type='nothing'
+
+[org.gnome.desktop.screensaver]
+lock-enabled=false
+ubuntu-lock-on-suspend=false

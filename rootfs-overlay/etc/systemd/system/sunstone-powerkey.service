@@ -2,7 +2,7 @@
 Description=sunstone power key: text console off/on
 
 [Service]
-# GRAPHICS=1: also in graphics mode (a desktop that does not handle the key itself)
+# GRAPHICS=PROCESS: also in graphics mode while PROCESS (a desktop that does not handle the key) runs
 EnvironmentFile=-/etc/default/sunstone-powerkey
 ExecStart=/usr/local/sbin/sunstone-powerkey
 Restart=on-failure
