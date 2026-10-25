@@ -1,0 +1,8 @@
+[Unit]
+Description=sunstone: mark boot_a as successfully booted 2 min after boot
+
+[Timer]
+OnBootSec=2min
+
+[Install]
+WantedBy=timers.target

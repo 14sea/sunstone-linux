@@ -1,0 +1,128 @@
+#!/usr/bin/python3
+# sunstone: mark boot_a as successfully booted, as Android's boot control does after every boot.
+# ABL takes one try off boot_a's retry count at each boot that is not marked successful; after 7
+# reboots without a flash (watchdog resets and panics included) the slot is unbootable and the phone
+# stops in fastboot. The mark is the "successful" bit (54) of boot_a's GPT attributes; fastboot
+# set_active (part of every flash) clears it again, so a new kernel still gets its tries.
+#
+# Changes only boot_a's 8 attribute bytes and the CRCs that cover them, in the primary and the backup
+# GPT. Both copies are checked first (signatures, CRCs, identical entries) and saved once to
+# /var/lib/sunstone/; after the write both are read back and compared with what was there before.
+#   sunstone-boot-success [--dry-run]
+import glob, os, struct, sys, time, zlib
+
+SUCCESSFUL, UNBOOTABLE = 1 << 54, 1 << 55
+SAVE = '/var/lib/sunstone'
+dry = '--dry-run' in sys.argv[1:]
+
+def die(msg):
+	sys.exit('sunstone-boot-success: ' + msg)
+
+def find_boot_a():
+	for ue in glob.glob('/sys/class/block/*/uevent'):
+		kv = dict(l.strip().split('=', 1) for l in open(ue) if '=' in l)
+		if kv.get('PARTNAME') == 'boot_a':
+			part = os.path.dirname(ue)
+			disk = os.path.basename(os.path.dirname(os.path.realpath(part)))
+			return disk, int(kv['PARTN'])
+	die('no boot_a partition')
+
+def crc(b):
+	return zlib.crc32(b) & 0xffffffff
+
+def read_gpt(f, bs, lba):
+	f.seek(lba * bs)
+	hdr = bytearray(f.read(bs))
+	if hdr[:8] != b'EFI PART':
+		die(f'no GPT header at LBA {lba}')
+	hsize, = struct.unpack_from('<I', hdr, 12)
+	check = bytearray(hdr[:hsize])
+	struct.pack_into('<I', check, 16, 0)
+	if crc(check) != struct.unpack_from('<I', hdr, 16)[0]:
+		die(f'bad header CRC at LBA {lba}')
+	my_lba, alt_lba = struct.unpack_from('<QQ', hdr, 24)
+	ent_lba, n, esize, ecrc = struct.unpack_from('<QIII', hdr, 72)
+	if my_lba != lba:
+		die(f'header at LBA {lba} says it is at {my_lba}')
+	f.seek(ent_lba * bs)
+	ents = bytearray(f.read(n * esize))
+	if crc(ents) != ecrc:
+		die(f'bad entry array CRC (header at LBA {lba})')
+	return dict(hdr=hdr, hsize=hsize, alt=alt_lba, ent_lba=ent_lba, n=n, esize=esize, ents=ents)
+
+def entry_attr(g, idx):
+	return struct.unpack_from('<Q', g['ents'], idx * g['esize'] + 48)[0]
+
+def set_attr(g, idx, attr):
+	struct.pack_into('<Q', g['ents'], idx * g['esize'] + 48, attr)
+	struct.pack_into('<I', g['hdr'], 88, crc(g['ents']))
+	struct.pack_into('<I', g['hdr'], 16, 0)
+	struct.pack_into('<I', g['hdr'], 16, crc(g['hdr'][:g['hsize']]))
+
+def write_gpt(fd, bs, lba, g, idx):
+	# only the header block and the block holding the entry
+	off = idx * g['esize']
+	blk = off // bs
+	os.pwrite(fd, bytes(g['ents'][blk * bs:(blk + 1) * bs]), (g['ent_lba'] + blk) * bs)
+	os.pwrite(fd, bytes(g['hdr']), lba * bs)
+
+disk, partn = find_boot_a()
+bs = int(open(f'/sys/block/{disk}/queue/logical_block_size').read())
+if open(f'/sys/block/{disk}/ro').read().strip() != '0':
+	die(f'{disk} is read-only')
+dev = '/dev/' + disk
+idx = partn - 1
+with open(dev, 'rb') as f:
+	pri = read_gpt(f, bs, 1)
+	bak = read_gpt(f, bs, pri['alt'])
+if pri['ents'] != bak['ents']:
+	die('primary and backup partition entries differ')
+name = pri['ents'][idx * pri['esize'] + 56:idx * pri['esize'] + 128].decode('utf-16le').rstrip('\0')
+if name != 'boot_a':
+	die(f'entry {partn} of {dev} is {name!r}, not boot_a')
+attr = entry_attr(pri, idx)
+desc = lambda a: (f'{a:#018x} (priority {(a >> 48) & 3}, active {(a >> 50) & 1}, tries {(a >> 51) & 7}, '
+		  f'successful {(a >> 54) & 1}, unbootable {(a >> 55) & 1})')
+print(f'{dev} entry {partn} boot_a: {desc(attr)}')
+if attr & UNBOOTABLE:
+	die('boot_a is marked unbootable; leaving it to fastboot set_active')
+if attr & SUCCESSFUL:
+	print('already marked successful')
+	sys.exit(0)
+new = attr | SUCCESSFUL
+print(f'new attributes: {desc(new)}' + (' (dry run, nothing written)' if dry else ''))
+if dry:
+	sys.exit(0)
+
+os.makedirs(SAVE, exist_ok=True)
+saved = f'{SAVE}/gpt-{disk}-{time.strftime("%Y%m%d-%H%M%S")}.bin'
+with open(saved, 'wb') as s:
+	for g, lba in ((pri, 1), (bak, pri['alt'])):
+		s.write(struct.pack('<QQQ', lba, g['ent_lba'], len(g['ents'])) + bytes(g['hdr']) + bytes(g['ents']))
+before = [(bytes(g['hdr']), bytes(g['ents'])) for g in (pri, bak)]
+
+fd = os.open(dev, os.O_RDWR | os.O_SYNC)
+try:
+	for g, lba in ((pri, 1), (bak, pri['alt'])):
+		set_attr(g, idx, new)
+		write_gpt(fd, bs, lba, g, idx)
+	os.fsync(fd)
+finally:
+	os.close(fd)
+
+# read back (bypassing the page cache) and compare with the bytes from before
+fd = os.open(dev, os.O_RDONLY)
+os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+os.close(fd)
+with open(dev, 'rb') as f:
+	after = [read_gpt(f, bs, 1), read_gpt(f, bs, pri['alt'])]
+for (hdr0, ents0), g in zip(before, after):
+	if entry_attr(g, idx) != new:
+		die('read back: attributes not written')
+	changed = [i for i in range(len(ents0)) if ents0[i] != g['ents'][i]]
+	if any(not idx * g['esize'] + 48 <= i < idx * g['esize'] + 56 for i in changed):
+		die('read back: other entry bytes changed')
+	changed = [i for i in range(len(hdr0)) if hdr0[i] != g['hdr'][i]]
+	if any(not (16 <= i < 20 or 88 <= i < 92) for i in changed):
+		die('read back: other header bytes changed')
+print(f'marked successful (both GPT copies; old copies in {saved})')

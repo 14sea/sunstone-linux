@@ -111,12 +111,19 @@
 - [x] 健康日誌的 `kerr` 改從 journal 數本次開機的內核錯誤（環形緩衝區會被擠掉）；root 開 linger
       （`/var/lib/systemd/linger/root`）：以前每次 ssh 都重新拉起 user@0（約 0.8 s），還打一條 `pam_warn(systemd-user:setcred)`
       （`/usr/lib/pam.d/systemd-user` 沒有 auth 段，setcred 落到 `other`），測試主機每分鐘探測一次就刷滿了 dmesg。
+- [x] **連續重啟 7 次後停在 fastboot**（2026-10-25 發現並修好）：ABL 每次開機把 boot_a 的重試次數（GPT 屬性 bit 51–53）
+      減 1，系統沒有把 slot 標成啟動成功（bit 54，Android 的 boot control 做這件事）；刷機時的 `fastboot set_active a`
+      會重置次數，所以以前沒暴露。boot-106 之後 6 次測試重啟 + 1 次就用完了，`slot-unbootable:a: yes`。用户同意後：
+      `sunstone-boot-success`（開機 2 min 後的 timer）只改 sde 上 boot_a 條目的 bit 54 和兩份 GPT 的 CRC，寫前校驗並備份、
+      寫後讀回比對（9 個字節/份，和預期一致）；之後連續重啟兩次，tries 一直是 6。看門狗復位、panic 也不再消耗次數。
+      待確認：下次刷機後 `set_active` 會清掉 successful 位（新內核照樣有 7 次機會），刷完看一次屬性。
+- [x] Wi-Fi 省電關掉（2026-10-25）：udev 規則在 wlan0 出現時 `iw dev wlan0 set power_save off`（重啟後確認生效）。
+      測試主機到手機的 ping 從平均 68.6 ms（最大 137）降到 4.9 ms（最大 7.9）。
 - [x] Wi-Fi 斷線重連（2026-10-25，`tools/wifi-ap-test.py` + `tools/esp8266-ap`，ESP8266 當測試 AP）：AP 消失 10 s / 60 s / 300 s
       後重新出現，手機分別 4 / 7 / 13 s 後重新連上並 ping 通 AP，無需干預；回到原網絡後 DHCP 拿回原地址。開機時 modem 卡 65 s
       的問題已修（見上，補丁 0010）。
 - [ ] 回到家裏的網絡後，手機自己 ping 網關正常，但測試主機約 2–3 min 內 ping 不通（07:03、07:04 兩次探測失敗，07:05 起恢復）。
-      未查明，候選：Wi-Fi 省電模式（`iw dev wlan0 get power_save` = on；測試主機到手機的 RTT 平時 30–250 ms，手機到網關只要 12 ms）、
-      兩邊的鄰居緩存。服務器上可以考慮關掉省電（udev 規則 `iw dev wlan0 set power_save off`），先對比延遲和功耗。
+      未查明，候選：Wi-Fi 省電模式（當時是 on，已關掉，見上）、兩邊的鄰居緩存。關掉省電後再測一次。
 
 ## 以後
 

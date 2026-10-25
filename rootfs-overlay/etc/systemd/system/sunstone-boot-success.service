@@ -1,0 +1,6 @@
+[Unit]
+Description=sunstone: mark boot_a as successfully booted (ABL retry count)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sunstone-boot-success

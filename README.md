@@ -24,7 +24,9 @@ ABL only boots the boot image in `boot_a` and passes a downstream DTB, which mai
 `shim/` (from the `ios-sunstone` project) is loaded by ABL as the "kernel"; it ignores ABL's DTB and
 jumps to a `SWEETLNX` payload appended behind it: the mainline `Image` plus the board DTB from
 `dts/`. Only `boot_a` and `userdata` are ever written; the bootloaders, `vendor_boot`, `dtbo`,
-`vbmeta`, modem, persist and EFS partitions are left alone.
+`vbmeta`, modem, persist and EFS partitions are left alone. The one other write is the "successful"
+bit of `boot_a`'s GPT attributes, set 2 min after each boot (`sunstone-boot-success`), as Android
+does: without it ABL counts down boot_a's tries and stops in fastboot after 7 reboots without a flash.
 
 ## Layout
 

@@ -1,4 +1,7 @@
 # sunstone: wlan0 appears only once the modem's WLAN firmware is up (seconds to minutes after
 # boot, or again after a modem restart), so start wpa_supplicant when it shows up instead of
 # from multi-user.target, where the 90 s device timeout made it give up (boot-17).
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="wpa_supplicant@wlan0.service"
+# Power save off: the phone is a server on permanent power, and with power save the test host's
+# ping to it took 69 ms on average (up to 137 ms) instead of 5 ms.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="wpa_supplicant@wlan0.service", \
+	RUN+="/usr/bin/iw dev $name set power_save off"
