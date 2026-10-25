@@ -128,6 +128,18 @@
       （2026-10-25，測試主機每秒 ping，時間戳用同一個時鐘）：手機 07:50:45 回到網絡，同一秒起 ping 通，之後 4.5 min 無間斷。
       多半是省電造成的（各只測了一次）。
 
+## 遷移到 Ubuntu Server（2026-10-24 定的計劃：Arch 不留在手機上，隨時可以從備份刷回）
+
+- [x] 整片備份當前的 Arch userdata（2026-10-25，boot-116，見 LOG.md）：救援模式下 `e2image -ra /dev/sda19 | zstd`，
+      `arch-userdata-20261025.e2i.zst`（2.9 GB，sha256 `da2ec42c2e55cd80…`），測試主機 `~/sunstone-linux/backup/` 和構建主機
+      `out/backup/` 各一份，不進 git（裡面有 Wi-Fi 配置、ssh 主機密鑰、EFS 副本）。解壓後 `e2fsck -fn` 乾淨。
+      恢復：`tools/mkboot.sh rescue` 刷入救援鏡像，然後
+      `zstd -dc arch-userdata-20261025.e2i.zst | ssh 手機 'dd of=/dev/sda19 bs=4M'`（先核對 PARTNAME=userdata），再刷回正式鏡像。
+- [ ] 內核配置要補 Ubuntu Server 常用的功能（現在按 Arch + Phosh 配的）：先列出 Ubuntu 的 systemd/snapd/netplan/ufw
+      需要的選項（squashfs、overlayfs、netfilter/nftables、cgroup、AppArmor 等），全部編進內核或開模塊。
+- [ ] Ubuntu rootfs：arm64 server 根文件系統 + rootfs-overlay，不裝 Ubuntu 自己的內核和 grub；Wi-Fi 用 netplan 還是
+      networkd 直接配；固件（`sunstone-fw-install`）、tqftpserv/rmtfs/pd-mapper 的包。
+
 ## 以後
 
 - [ ] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換
