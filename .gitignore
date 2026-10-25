@@ -1,6 +1,6 @@
 # build products, sources and downloads
 out/
-src/
+/src/
 downloads/
 # device dumps and host-specific settings
 *.dtb.live

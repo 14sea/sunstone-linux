@@ -111,7 +111,12 @@
 - [x] 健康日誌的 `kerr` 改從 journal 數本次開機的內核錯誤（環形緩衝區會被擠掉）；root 開 linger
       （`/var/lib/systemd/linger/root`）：以前每次 ssh 都重新拉起 user@0（約 0.8 s），還打一條 `pam_warn(systemd-user:setcred)`
       （`/usr/lib/pam.d/systemd-user` 沒有 auth 段，setcred 落到 `other`），測試主機每分鐘探測一次就刷滿了 dmesg。
-- [ ] Wi-Fi 健壯性：路由器重啟後重連（未測）。開機時 modem 卡 65 s 的問題已修（見上，補丁 0010）。
+- [x] Wi-Fi 斷線重連（2026-10-25，`tools/wifi-ap-test.py` + `tools/esp8266-ap`，ESP8266 當測試 AP）：AP 消失 10 s / 60 s / 300 s
+      後重新出現，手機分別 4 / 7 / 13 s 後重新連上並 ping 通 AP，無需干預；回到原網絡後 DHCP 拿回原地址。開機時 modem 卡 65 s
+      的問題已修（見上，補丁 0010）。
+- [ ] 回到家裏的網絡後，手機自己 ping 網關正常，但測試主機約 2–3 min 內 ping 不通（07:03、07:04 兩次探測失敗，07:05 起恢復）。
+      未查明，候選：Wi-Fi 省電模式（`iw dev wlan0 get power_save` = on；測試主機到手機的 RTT 平時 30–250 ms，手機到網關只要 12 ms）、
+      兩邊的鄰居緩存。服務器上可以考慮關掉省電（udev 規則 `iw dev wlan0 set power_save off`），先對比延遲和功耗。
 
 ## 以後
 
