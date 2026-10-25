@@ -181,6 +181,15 @@
 - [x] 用户決定（2026-10-25）：桌面用户 phone 設了密碼（只在手機上，不進倉庫）並加進 sudo 組；ssh 仍然只允許 root
       （`AllowUsers root`）。`add-lomiri.sh` / `add-gnome.sh` 建的 phone 照舊沒有密碼和 sudo，要時手動 `passwd phone`、
       `usermod -aG sudo phone`。GNOME 的鎖屏仍然關著（有密碼後可以打開）。
+- [x] **Wi-Fi 改由 NetworkManager 管**（2026-10-25，用户要 GNOME 的 Wi-Fi 面板；用户確認：顯示已連接，能看到網絡列表）：
+      `tools/ubuntu/wifi-to-networkmanager.sh`（`--revert` 退回）：wpa_supplicant 配置裡的網絡轉成 NM keyfile（只在手機上），
+      `10-wlan0-networkmanager.network`（`Unmanaged=yes`）讓 networkd 放開 wlan0、overlay 的 20-wlan0.network 不動，
+      `wpa_supplicant@wlan0` mask，NM 用 D-Bus 的 wpa_supplicant.service；usb0 仍是 networkd。NM：只管 wlan0、省電關、
+      固定 MAC（掃描也不隨機）、DHCP client ID = MAC。地址變了（新的 DHCP 標識），測試主機的 reach-log 跟著改；
+      路由器上給 02:53:4e:00:00:10 綁地址就能固定。`sunstone-wifi-add` 在 NM 運行時改用 `nmcli --ask`。
+      build-rootfs.sh 仍然默認 networkd（服務器、無桌面時）。
+- [ ] reach-log（測試主機）裝 Ubuntu 後有一段時間每次 ssh 都卡在認證前（sshd `Timeout before authentication`），手動 ssh
+      正常，重啟 reach-log 後恢復；sshd 沒有 PerSourcePenalties 記錄。原因未明。
 - [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619 上；面板的 60 Hz 模式（見 M6 遺留）可能有幫助；
       沒有 RealtimeKit（KMS 線程拿不到實時優先級）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕

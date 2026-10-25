@@ -1,8 +1,15 @@
 #!/bin/sh
-# sunstone: add a Wi-Fi network for wpa_supplicant@wlan0 interactively, so the passphrase is
-# typed on the phone's console/ssh session only. Stores the derived PSK, not the passphrase.
+# sunstone: add a Wi-Fi network for wpa_supplicant@wlan0 (or NetworkManager, when it runs wlan0)
+# interactively, so the passphrase is typed on the phone's console/ssh session only. Stores the
+# derived PSK, not the passphrase.
 #   ssh -t root@192.168.7.2 sunstone-wifi-add
 set -eu
+if systemctl -q is-active NetworkManager; then
+	# NetworkManager runs wlan0 (tools/ubuntu/wifi-to-networkmanager.sh): it asks for the passphrase
+	printf 'SSID: '
+	read -r ssid
+	exec nmcli --ask device wifi connect "$ssid" ifname wlan0
+fi
 CONF=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 if [ ! -s "$CONF" ]; then
 	printf 'Country code for the regulatory domain (e.g. US, DE, CN): '
