@@ -178,6 +178,9 @@
       用户測試：Logitech K380（經典藍牙 HID，配對碼）和 M575（BLE HoG，無配對碼）在 GNOME 下都正常、很流暢。
       配對要點：K380 只接受綁定（bluez 拒絕未綁定的經典 HID），要 `pairable on` + KeyboardDisplay agent + 及時輸入
       配對碼（配對碼也用 notify-send 彈到 GNOME）；GNOME 設置裡的藍牙一直在搜索、沒列出設備，沒查原因。
+- [x] 用户決定（2026-10-25）：桌面用户 phone 設了密碼（只在手機上，不進倉庫）並加進 sudo 組；ssh 仍然只允許 root
+      （`AllowUsers root`）。`add-lomiri.sh` / `add-gnome.sh` 建的 phone 照舊沒有密碼和 sudo，要時手動 `passwd phone`、
+      `usermod -aG sudo phone`。GNOME 的鎖屏仍然關著（有密碼後可以打開）。
 - [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619 上；面板的 60 Hz 模式（見 M6 遺留）可能有幫助；
       沒有 RealtimeKit（KMS 線程拿不到實時優先級）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
