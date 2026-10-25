@@ -67,6 +67,11 @@
 	compatible = "xiaomi,sunstone", "qcom,sm4375", "qcom,sm6375";
 	chassis-type = "handset";
 
+	aliases {
+		/* the GENI UART driver takes its port number from here (Bluetooth; the console is tty0) */
+		serial0 = &uart1;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -733,6 +738,10 @@
 	status = "okay";
 };
 
+&qupv3_id_0 {
+	status = "okay";
+};
+
 &qupv3_id_1 {
 	status = "okay";
 };
@@ -746,7 +755,7 @@
 	regulators-0 {
 		compatible = "qcom,rpm-pm6125-regulators";
 
-		/* WLAN 1.3 V RFA */
+		/* WLAN 1.3 V RFA, Bluetooth vddrf */
 		pm6125_l2: l2 {
 			regulator-min-microvolt = <1304000>;
 			regulator-max-microvolt = <1304000>;
@@ -772,6 +781,12 @@
 			regulator-max-microvolt = <1800000>;
 		};
 
+		/* Bluetooth vddio (downstream 1.7-1.9 V; the rail allows 1.504-2.0 V) */
+		pm6125_l9: l9 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
 		/* UFS vccq2 */
 		pm6125_l11: l11 {
 			regulator-min-microvolt = <1800000>;
@@ -786,7 +801,7 @@
 			regulator-allow-set-load;
 		};
 
-		/* WLAN 1.8 V XO */
+		/* WLAN 1.8 V XO, Bluetooth vddxo */
 		pm6125_l16: l16 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
@@ -798,7 +813,7 @@
 			regulator-max-microvolt = <3304000>;
 		};
 
-		/* WLAN 3.3 V ch0 */
+		/* WLAN 3.3 V ch0, Bluetooth vddch0 */
 		pm6125_l23: l23 {
 			regulator-min-microvolt = <3304000>;
 			regulator-max-microvolt = <3304000>;
@@ -888,6 +903,30 @@
 		function = "gpio";
 		bias-disable;
 		output-low;
+	};
+};
+
+/*
+ * Bluetooth: the WCN3988's on the QUP0 SE1 high-speed UART (downstream qcom,msm-geni-serial-hs at
+ * 0x4a84000, GPIO61-64), supplies from the downstream bt_wcn3990 node: io PM6125 L9, xtal L16,
+ * core (RF) L2 and PA (ch0) L23, the last three shared with WLAN; its 0.98 V smps (PM6125 S5) has no
+ * place in the binding and stays as it is. SW_CTRL on GPIO69. The firmware (apbtfw/apnv) comes from
+ * the phone's bluetooth_a partition (sunstone-fw-install). No BD address is programmed: a fixed
+ * locally administered one (02:53:4e:00:00:11, byte order reversed here) instead of the phone's own
+ * from persist, which stays out of this repository; without one the controller stays unconfigured.
+ */
+&uart1 {
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3988-bt";
+		vddio-supply = <&pm6125_l9>;
+		vddxo-supply = <&pm6125_l16>;
+		vddrf-supply = <&pm6125_l2>;
+		vddch0-supply = <&pm6125_l23>;
+		swctrl-gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+		max-speed = <3200000>;
+		local-bd-address = [11 00 00 4e 53 02];
 	};
 };
 

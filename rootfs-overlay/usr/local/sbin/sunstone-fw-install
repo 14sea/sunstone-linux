@@ -8,6 +8,8 @@
 #    outside China; sunc = bdwlan.bin is the Chinese one) -> /lib/firmware/updates/ath10k/...
 #  - vendor_a (EROFS inside super, mounted read-only through a read-only loop device at the offset
 #    sunstone-lpmap finds): the GPU zap shader a615_zap.* -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
+#  - bluetooth_a (vfat, read-only): the WCN3988's patch and NVM (apbtfw*.tlv, apnv*.bin; Xiaomi's,
+#    not linux-firmware's) -> /lib/firmware/updates/qca/
 #  - modemst1/2, fsg, fsc (the modem's EFS) -> /var/lib/rmtfs/, served by rmtfs-dir.service,
 #    so the modem's EFS writes land in these copies and never on the partitions.
 # Re-running refreshes the firmware but keeps existing EFS copies.
@@ -32,6 +34,12 @@ zap=$(find "$VND" -name 'a615_zap.mdt' | head -1)
 [ -n "$zap" ] || { echo "no a615_zap.mdt in vendor_a" >&2; exit 1; }
 cp "${zap%.mdt}".* "$FW"/
 echo "zap shader: $(ls "${zap%.mdt}".* | sed "s|^$VND||" | tr '\n' ' ')"
+
+umount "$MNT"
+mount -o ro /dev/disk/by-partlabel/bluetooth_a "$MNT"
+mkdir -p /lib/firmware/updates/qca
+cp "$MNT"/image/apbtfw*.tlv "$MNT"/image/apnv*.bin /lib/firmware/updates/qca/
+echo "bluetooth: $(cd "$MNT/image" && ls apbtfw*.tlv apnv*.bin | tr '\n' ' ')"
 
 BD=ath10k/WCN3990/hw1.0
 mkdir -p /lib/firmware/updates/$BD

@@ -170,6 +170,14 @@
       電源鍵：GNOME 默認彈關機對話框 → gschema override（power-button-action nothing、不鎖屏、不休眠），sunstone-powerkey
       切換 mutter 的 `PowerSaveMode`（dpms 真正關閉，KMS）並在熄屏時暫停觸摸。沒有 GDM 時 gnome-shell 不提供
       ScreenShield（org.gnome.ScreenSaver），所以不走屏保。裝包時 polkit 在 polkitd 用户建好前被拉起而失敗，重啟即可。
+- [x] **藍牙**（2026-10-25，boot-127/129）：WCN3988 藍牙在 QUP0 SE1 的高速 UART（0x4a84000，sm6375.dtsi 的 uart1，
+      GPIO61-64），`qcom,wcn3988-bt`，供電 L9/L16/L2/L23（後三路和 WLAN 共用），swctrl GPIO69，固定的本地管理
+      BD 地址 02:53:4e:00:00:11；GENI UART 要 `serial0` 別名（否則 `Invalid line -19`）。固件用手機 bluetooth_a 的
+      apbtfw11.tlv / apnv11.bin（和 linux-firmware 的不同，`sunstone-fw-install` 拷到 updates/qca）。內核補 BT_LE、UHID、
+      RFCOMM、BNEP、uinput；uhid 開機加載（modules-load.d），否則 BLE 鼠標 `input-hog profile accept failed`。
+      用户測試：Logitech K380（經典藍牙 HID，配對碼）和 M575（BLE HoG，無配對碼）在 GNOME 下都正常、很流暢。
+      配對要點：K380 只接受綁定（bluez 拒絕未綁定的經典 HID），要 `pairable on` + KeyboardDisplay agent + 及時輸入
+      配對碼（配對碼也用 notify-send 彈到 GNOME）；GNOME 設置裡的藍牙一直在搜索、沒列出設備，沒查原因。
 - [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619 上；面板的 60 Hz 模式（見 M6 遺留）可能有幫助；
       沒有 RealtimeKit（KMS 線程拿不到實時優先級）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
