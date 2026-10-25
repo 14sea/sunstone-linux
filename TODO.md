@@ -86,7 +86,12 @@
 - [x] 熄屏/亮屏（boot-87 確認）：電源鍵由 Phosh 處理（它和 gsd-media-keys 持有 `handle-power-key` 抑制器，logind 的
       `HandlePowerKey=ignore` 不影響），按一下滅、按一下亮，空閒後自動熄屏也正常。以前「按鍵沒反應」是面板關閉後
       無法重新點亮（display-off 失敗留下 enabled、關屏時寫亮度 EINVAL），boot-87 修好了。
-- [ ] 面板的 60 Hz 模式（下游 dfps 120/60）、亮度曲線（`bl-inverted-dbv`、最小亮度 4）、HBM/調光命令。
+- [x] 面板的 60 Hz 模式（2026-10-25，boot-131/133，補丁 0008）：下游 `qcom,dsi-supported-dfps-list = <120 60>`、
+      `dfps_immediate_porch_mode_vfp`：像素時鐘不變，60 Hz 只加長垂直前肩（20 → 2452 行）；DDIC 的幀率寄存器 60 01（120 Hz）
+      / 60 21（60 Hz），即下游的 bc-120hz/-60hz 命令，上電序列按 connector 狀態裡的模式選（同 panel-novatek-nt35950）。
+      120 Hz 仍是首選。用户：60 Hz 畫面正常，但沒有 120 Hz 絲滑，所以 GNOME 默認保持 120 Hz（「顯示器」裡可以切）；
+      GNOME 空閒時 gnome-shell CPU 120 Hz 37、60 Hz 14 ticks/10 s。
+- [ ] 面板的亮度曲線（`bl-inverted-dbv`、最小亮度 4）、HBM/調光命令。
       用户反饋（boot-87）：亮度 80 和 300 看起來差不多（讀回值正確）。查三星 `bl-dcs-type-ss-ea` 和
       `bl-inverted-dbv` 在下游 dsi_panel.c 裏怎麼換算 51h 的兩個字節（字節序、是否取反），再看整個 4–2047 範圍的實際效果。
 - [ ] phoc 打印「No panel found for compatibles」：gmobile 的面板數據庫裡沒有 sunstone（圓角/挖孔），可以給 gmobile 提交。
@@ -190,8 +195,8 @@
       build-rootfs.sh 仍然默認 networkd（服務器、無桌面時）。
 - [ ] reach-log（測試主機）裝 Ubuntu 後有一段時間每次 ssh 都卡在認證前（sshd `Timeout before authentication`），手動 ssh
       正常，重啟 reach-log 後恢復；sshd 沒有 PerSourcePenalties 記錄。原因未明。
-- [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619 上；面板的 60 Hz 模式（見 M6 遺留）可能有幫助；
-      沒有 RealtimeKit（KMS 線程拿不到實時優先級）。
+- [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619（最高 650 MHz）上；60 Hz 模式有了但用户覺得不如
+      120 Hz 絲滑；沒有 RealtimeKit（KMS 線程拿不到實時優先級）；GPU 700 MHz 檔（gpucc 沒有）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
       關了，也不顯示鎖屏）；網絡指示器沒有 NetworkManager 不顯示內容；沒有音頻、相機、通話。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
