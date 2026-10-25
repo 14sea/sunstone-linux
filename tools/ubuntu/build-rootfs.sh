@@ -88,6 +88,9 @@ EOF
 # serves the copies in /var/lib/rmtfs instead. qrtr-ns: the kernel runs the QRTR name service.
 ln -sf /dev/null "$R/etc/systemd/system/rmtfs.service"
 ln -sf /dev/null "$R/etc/systemd/system/qrtr-ns.service"
+# networkd and wpa_supplicant@wlan0 run the network; NetworkManager (a dependency of Lomiri's
+# network indicator, for one) would take wlan0 over
+ln -sf /dev/null "$R/etc/systemd/system/NetworkManager.service"
 printf '#!/bin/sh\nexit 101\n' > "$R/usr/sbin/policy-rc.d"
 chmod +x "$R/usr/sbin/policy-rc.d"
 
@@ -116,9 +119,11 @@ echo "$TZ" > "$R/etc/timezone"
 # C.UTF-8 needs no locales package; pam_env reads this on every login
 echo LANG=C.UTF-8 > "$R/etc/default/locale"
 
-# ssh: root with the test host's key (Ubuntu's sshd: PermitRootLogin prohibit-password)
+# ssh: root with the test host's key (Ubuntu's sshd: PermitRootLogin prohibit-password), and only
+# root (a desktop user, add-lomiri.sh, has no ssh login)
 install -d -m 700 -o 0 -g 0 "$R/root/.ssh"
 install -m 600 -o 0 -g 0 "$SRC/authorized_keys" "$R/root/.ssh/authorized_keys"
+printf 'AllowUsers root\n' > "$R/etc/ssh/sshd_config.d/sunstone.conf"
 
 # USB network: the initramfs already configured the NCM gadget; networkd gives the phone
 # 192.168.7.2 and hands the host 192.168.7.1, no route, no DNS. Wi-Fi: 20-wlan0.network (overlay).

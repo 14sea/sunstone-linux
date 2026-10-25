@@ -1,0 +1,31 @@
+# sunstone: Lomiri (Ubuntu Touch's shell) for the desktop user phone (uid 1000) on tty7, as a logind
+# session; after the phosh.service of the Arch days. Not started at boot: systemctl start lomiri
+[Unit]
+Description=Lomiri, Ubuntu Touch's shell
+Wants=dbus.socket systemd-logind.service accounts-daemon.service
+After=dbus.socket systemd-logind.service systemd-user-sessions.service accounts-daemon.service
+Conflicts=getty@tty7.service
+After=getty@tty7.service
+
+[Service]
+Type=simple
+# the logind session only becomes active on the foreground VT (tty1 holds the console)
+ExecStartPre=+/usr/bin/chvt 7
+Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_CURRENT_DESKTOP=Lomiri XDG_SESSION_DESKTOP=lomiri
+ExecStart=/usr/bin/dm-lomiri-session
+# back to the text console
+ExecStopPost=+/usr/bin/chvt 1
+User=phone
+WorkingDirectory=~
+PAMName=lomiri
+TTYPath=/dev/tty7
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=graphical.target

@@ -154,9 +154,17 @@
       內核缺 REJECT/hl/rt 模塊，規則只加載了一半，22 端口沒放行、默認拒絕卻生效，兩條 ssh 都斷了；事先設的 5 分鐘
       `ufw disable` 保險把它關掉。補上模塊（boot-126）後啟用無報錯，8080 從 Wi-Fi 和 USB 都連不上，重啟後照常加載。
       unattended-upgrades 已開（只裝安全更新，內核被 pin 擋住）。
-- [ ] 桌面：用户問 Ubuntu Touch。UBports 的系統要 Halium/Android 內核，用不了；它的外殼 Lomiri（0.5.0，Qt + Mir）在
-      Ubuntu 26.04 universe 裡，424 個包 / 628 MB，這台手機上沒試過。Phosh 0.54：444 個包 / 713 MB，Arch 上要打
-      wlroots 補丁。都沒有音頻、相機、通話；作為可選會話，默認仍是文本模式。
+- [x] **Lomiri（Ubuntu Touch 的外殼）作為可選桌面**（2026-10-25，用户確認觸摸、下拉菜單、側滑、頂欄大小、電源鍵都正常）：
+      UBports 的系統要 Halium/Android 內核，用不了；Lomiri 0.5.0 在 Ubuntu universe 裡，跑在 Mir（msm KMS + freedreno）上，
+      DSI-1 1080x2400@120。`tools/ubuntu/add-lomiri.sh` + `rootfs-overlay-lomiri/`：桌面用户 phone（uid 1000，無密碼，
+      不能 ssh，sshd `AllowUsers root`），`systemctl start lomiri`（tty7 上的 logind 會話），默認仍是文本模式。
+      踩過的坑：Mir 平台和鍵盤布局都是 Recommends（沒有布局 maliit 崩潰，連帶 Lomiri 每 8 s 重啟）；Lomiri 的網絡指示器
+      拉進 NetworkManager，搶走 wlan0（Wi-Fi 斷，已 mask，build-rootfs.sh 也預先 mask）；libdeviceinfo 按
+      /proc/device-tree/model 找機型配置，沒有時當桌面電腦（grid unit 8、橫屏，**觸摸不起作用**）→ sunstone.yaml
+      （phone，GridUnit 26）；repowerd 只支持 Ubuntu Touch 的系統合成器（LSC），Mir 也沒有輸出電源管理協議，所以
+      `sunstone-powerkey` 在 `GRAPHICS=1` 時自己熄屏：bl_power 關 + 觸摸屏 input inhibit。
+- [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
+      關了，也不顯示鎖屏）；網絡指示器沒有 NetworkManager 不顯示內容；沒有音頻、相機、通話。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。

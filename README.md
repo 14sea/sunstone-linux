@@ -40,6 +40,7 @@ does: without it ABL counts down boot_a's tries and stops in fastboot after 7 re
 | `shim/` | The boot shim and the boot image wrapper |
 | `rootfs-overlay/` | Files on top of the distribution (firmware install, Wi-Fi setup, watchdog, power key, health log, boot-success mark, ...) |
 | `rootfs-overlay-arch/` | Arch Linux ARM only: Phosh service, the wlroots patch build, the tqftpserv build |
+| `rootfs-overlay-lomiri/` | Lomiri (Ubuntu Touch's shell) as an optional desktop on Ubuntu (`tools/ubuntu/add-lomiri.sh`) |
 | `tools/` | Build, pack and flash scripts; `tools/remote/` runs on the test host, `tools/ubuntu/` on the phone (Ubuntu root filesystem) |
 
 ## Building

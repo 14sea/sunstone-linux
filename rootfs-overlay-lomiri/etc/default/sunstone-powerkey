@@ -1,0 +1,3 @@
+# sunstone-powerkey: Lomiri here does not handle the power key (that needs Ubuntu Touch's system
+# compositor), so the power key service blanks the panel in graphics mode too
+GRAPHICS=1

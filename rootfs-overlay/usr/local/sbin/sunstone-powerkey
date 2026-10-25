@@ -1,14 +1,20 @@
 #!/usr/bin/python3
-# sunstone: the power key turns the text console off and on. Nothing happens while the console is
-# in graphics mode (Phosh handles the key itself then). A blank by the console's own timer
+# sunstone: the power key turns the text console off and on. A blank by the console's own timer
 # (consoleblank=) is made a forced one, so that only this key brings the screen back, not any key
 # press or kernel message.
+# In graphics mode the key is left to the desktop (Phosh handles it), unless GRAPHICS=1
+# (/etc/default/sunstone-powerkey) for one that does not, such as Lomiri without Ubuntu Touch's
+# system compositor: then the key switches the panel's backlight off and on (bl_power) and holds the
+# touchscreens (input inhibit) while it is off. The compositor keeps drawing; it is not told.
 import fcntl, glob, os, select, struct, sys
 
 TIOCLINUX, KDGETMODE, KD_TEXT = 0x541C, 0x4B3B, 0
 TIOCL_UNBLANKSCREEN, TIOCL_BLANKSCREEN, TIOCL_BLANKEDSCREEN = 4, 14, 15
 EV_KEY, KEY_POWER = 1, 116
 EVENT = struct.Struct('llHHi')
+INPUT_PROP_DIRECT = 1 << 1
+FB_BLANK_UNBLANK, FB_BLANK_POWERDOWN = 0, 4
+GRAPHICS = os.environ.get('GRAPHICS') == '1'
 
 def key_device():
 	for d in glob.glob('/sys/class/input/event*'):
@@ -25,9 +31,23 @@ def text_mode(tty):
 	fcntl.ioctl(tty, KDGETMODE, mode)
 	return int.from_bytes(mode, sys.byteorder) == KD_TEXT
 
+def write(path, value):
+	with open(path, 'w') as f:
+		f.write(str(value))
+
+def panel(on):
+	"""graphics mode: backlight on/off, touchscreens released/held"""
+	for d in glob.glob('/sys/class/input/input*'):
+		with open(d + '/properties') as f:
+			if int(f.read(), 16) & INPUT_PROP_DIRECT:
+				write(d + '/inhibited', 0 if on else 1)
+	for p in glob.glob('/sys/class/backlight/*/bl_power'):
+		write(p, FB_BLANK_UNBLANK if on else FB_BLANK_POWERDOWN)
+
 key = os.open(key_device(), os.O_RDONLY)
 tty = os.open('/dev/tty0', os.O_RDWR | os.O_NOCTTY)
 forced = False
+panel_off = False
 while True:
 	ready, _, _ = select.select([key], [], [], 1)
 	pressed = False
@@ -38,7 +58,14 @@ while True:
 			pressed |= type_ == EV_KEY and code == KEY_POWER and value == 1
 	if not text_mode(tty):
 		forced = False
+		if GRAPHICS and pressed:
+			panel_off = not panel_off
+			panel(not panel_off)
 		continue
+	if panel_off:
+		# the desktop went away with the panel off: give the console its screen back
+		panel(True)
+		panel_off = False
 	blanked = tioclinux(tty, TIOCL_BLANKEDSCREEN) != 0
 	if pressed:
 		tioclinux(tty, TIOCL_UNBLANKSCREEN if blanked else TIOCL_BLANKSCREEN)

@@ -1,0 +1,12 @@
+# sunstone: libdeviceinfo matches Names against /proc/device-tree/model; without this file
+# Lomiri takes the default desktop profile (grid unit 8, landscape) and ignores the touchscreen
+sunstone:
+  Names:
+    - Xiaomi Redmi Note 12 5G (sunstone)
+  PrettyName: Xiaomi Redmi Note 12 5G
+  DeviceType: phone
+  # 6.67 inch 1080x2400, about 395 ppi (PinePhone, about 270 ppi: 14). 21 and 24 look small;
+  # 28 crashes Lomiri 0.5.0 (SIGSEGV within a second of the start, every time), 26 runs
+  GridUnit: 26
+  PrimaryOrientation: Portrait
+  WebkitDpr: 2
