@@ -19,7 +19,7 @@
 	model = "Xiaomi Redmi Note 12 5G (sunstone), milestone 6 display";
 
 	chosen {
-		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused consoleblank=120";
+		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused consoleblank=120 watchdog.open_timeout=120";
 	};
 
 	panel_avdd: panel-avdd-regulator {
@@ -42,6 +42,8 @@
 		 * register layout as the KPSS watchdog; the sm6115 node is the model, including the edge
 		 * trigger (level-high, as downstream, storms for the second between bark and bite).
 		 * A bite resets into Linux again (boot-93: 67 s); systemd pets it (RuntimeWatchdogSec).
+		 * The shim starts it before Linux; the watchdog core pets it until systemd opens it, for at
+		 * most watchdog.open_timeout (bootargs), so a hang during kernel init is reset as well.
 		 */
 		watchdog@f410000 {
 			compatible = "qcom,apss-wdt-sm6375", "qcom,kpss-wdt";

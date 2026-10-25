@@ -20,6 +20,9 @@ CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align
 # long power press) lands in fastboot: the development safety net. Default 0 (an always-on server):
 # a panic reboots straight back into Linux; `reboot bootloader` still reaches fastboot.
 CFLAGS="$CFLAGS -DSHIM_PON_FASTBOOT=${PON_FASTBOOT:-0}"
+# WDT=1: start the APSS watchdog right before Linux (only for a kernel with qcom-wdt, which takes
+# it over; tools/mkboot.sh decides). Without a driver feeding it the phone resets after 32 s.
+CFLAGS="$CFLAGS -DSHIM_WDT=${WDT:-0}"
 SRCS="start.S shim.c console.c mmu.c fdt.c loader.c"
 mkdir -p out
 for f in $SRCS; do

@@ -652,6 +652,26 @@ static void cpufreq_domain(uintptr_t b, const char *name, unsigned ncores)
 	(void)n;
 }
 
+/*
+ * APSS watchdog (KPSS register layout at 0xf410000, 32768 Hz sleep clock), started with the
+ * longest count (0xfffff ticks, 32 s) as the last step before Linux when the kernel has qcom-wdt
+ * (SHIM_WDT, set by tools/mkboot.sh). qcom-wdt finds it running when it probes and restarts it
+ * with its own timeout, and the watchdog core pings it until systemd opens /dev/watchdog0, for
+ * at most watchdog.open_timeout= seconds: a hang before userspace takes over is reset too.
+ * Bark and bite at the same count: the bark has no handler before the kernel's.
+ */
+#define APSS_WDT	0x0f410000UL
+
+static void wdt_start(void)
+{
+	mmio_wr(APSS_WDT + 0x8, 0);		/* WDT_EN */
+	mmio_wr(APSS_WDT + 0x4, 1);		/* WDT_RST: restart the count */
+	mmio_wr(APSS_WDT + 0x10, 0xfffff);	/* WDT_BARK_TIME */
+	mmio_wr(APSS_WDT + 0x14, 0xfffff);	/* WDT_BITE_TIME */
+	mmio_wr(APSS_WDT + 0x8, 1);
+	con_hex2("WDT", "en=", mmio_rd(APSS_WDT + 0x8), "bite=", mmio_rd(APSS_WDT + 0x14));
+}
+
 static void cpufreq_max(void)
 {
 	con_clear(DKGREEN);
@@ -691,6 +711,11 @@ void shim_main(uint64_t dtb)
 		cpufreq_max();
 		con_skip();
 		stage = "loader";
+#if SHIM_WDT
+		wdt_start();
+#else
+		con_str("WDT", "not started (kernel without qcom-wdt)");
+#endif
 		const char *why = linux_boot(emb);
 		con_str("LOADER", why);
 		reset(60);
