@@ -1,0 +1,52 @@
+#!/usr/bin/python3
+"""Where a logical partition (Android dynamic partitions) lies inside the super partition.
+
+  sunstone-lpmap SUPER NAME      prints "OFFSET SIZE" in bytes, for losetup -o/--sizelimit
+
+Reads the primary LP metadata (liblp: geometry "gDla" at 4096, metadata header "0PLA" at 3 * 4096,
+then the partition and extent tables; 512-byte sectors). Only partitions made of one linear extent
+on the super device itself are handled, which is how sunstone's are laid out; anything else is an
+error rather than a guess. Read-only.
+"""
+import struct
+import sys
+
+LP_GEOMETRY_MAGIC, LP_HEADER_MAGIC = 0x616c4467, 0x414c5030
+LP_TARGET_TYPE_LINEAR = 0
+
+
+def die(msg):
+	sys.exit('sunstone-lpmap: ' + msg)
+
+
+if len(sys.argv) != 3:
+	die('usage: sunstone-lpmap SUPER NAME')
+with open(sys.argv[1], 'rb') as f:
+	f.seek(4096)
+	if struct.unpack('<I', f.read(4))[0] != LP_GEOMETRY_MAGIC:
+		die('no LP geometry')
+	f.seek(3 * 4096)
+	h = f.read(256)
+	magic, major, minor, hsize = struct.unpack_from('<IHHI', h, 0)
+	if magic != LP_HEADER_MAGIC or major != 10:
+		die(f'no LP metadata header (magic {magic:#x}, version {major}.{minor})')
+	# header: magic, major, minor, header_size, header_checksum[32], tables_size, tables_checksum[32],
+	# then {offset, num_entries, entry_size} for the partition, extent, group and block device tables
+	tables_size, = struct.unpack_from('<I', h, 44)
+	(po, pn, ps), (eo, en, es) = (struct.unpack_from('<III', h, 80 + 12 * i) for i in range(2))
+	f.seek(3 * 4096 + hsize)
+	t = f.read(tables_size)
+
+for i in range(pn):
+	name, _attrs, first, num, _group = struct.unpack_from('<36sIIII', t, po + i * ps)
+	if name.split(b'\0')[0].decode() != sys.argv[2]:
+		continue
+	if num != 1:
+		die(f'{sys.argv[2]} has {num} extents, only one is handled')
+	sectors, target_type, target_data, target_source = struct.unpack_from('<QIQI', t, eo + first * es)
+	if target_type != LP_TARGET_TYPE_LINEAR or target_source != 0:
+		die(f'{sys.argv[2]}: not a linear extent on the super device')
+	print(target_data * 512, sectors * 512)
+	break
+else:
+	die(f'no partition {sys.argv[2]}')

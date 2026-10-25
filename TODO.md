@@ -41,8 +41,10 @@
 
 ## M6 遺留
 
-- [ ] GPU 的 zap shader（a615_zap.*）是從本機舊的提取副本拷到手機的；`sunstone-fw-install` 應從手機自己的 super/vendor
-      分區提取（lpextract + erofs），這樣才能重現。
+- [x] GPU 的 zap shader（2026-10-25）：`sunstone-fw-install` 從手機自己的 vendor_a 提取（super 裏的 EROFS，`sunstone-lpmap`
+      解析 LP 元數據找到偏移，只讀 loop + `mount -t erofs -o ro`，文件在 `/firmware/a615_zap.*`），和以前手動拷的逐字節相同。
+      GPU 第一次使用時加載 SQE 和 zap，`eglinfo` 報 FD619 / OpenGL 4.6。開機時 msm 綁定（rootfs 還沒掛載）找不到 SQE，
+      報一條錯誤，之後自己重試；把 SQE 編進內核反而多一條（接着找 zap，`gpu hw init failed`，boot-120），所以不編進去。
 - [ ] GPU 最高 650 MHz：速度檔 148 下游可到 700 MHz，但 gpucc 的頻率表沒有 700。
 - [ ] boot-22（無 GPU 節點）有一次無日誌的啟動失敗，原因未明；netconsole 已就緒，再出現時能看到。
 - [x] 真正的顯示驅動（MDSS/DPU/DSI + 面板，2026-10-23 屏幕正常）：面板驅動發完整的下游上電序列，DSC 切片高度 40。
@@ -135,8 +137,14 @@
       `out/backup/` 各一份，不進 git（裡面有 Wi-Fi 配置、ssh 主機密鑰、EFS 副本）。解壓後 `e2fsck -fn` 乾淨。
       恢復：`tools/mkboot.sh rescue` 刷入救援鏡像，然後
       `zstd -dc arch-userdata-20261025.e2i.zst | ssh 手機 'dd of=/dev/sda19 bs=4M'`（先核對 PARTNAME=userdata），再刷回正式鏡像。
-- [ ] 內核配置要補 Ubuntu Server 常用的功能（現在按 Arch + Phosh 配的）：先列出 Ubuntu 的 systemd/snapd/netplan/ufw
-      需要的選項（squashfs、overlayfs、netfilter/nftables、cgroup、AppArmor 等），全部編進內核或開模塊。
+- [x] 內核配置補 Ubuntu Server 的功能（2026-10-25，boot-120/122）：`sunstone.config` 的「Ubuntu Server」一節。編進內核：
+      AppArmor（LSM 列表裏，已啟用）、Yama、PSI、CHECKPOINT_RESTORE、overlayfs、FUSE、squashfs 的 xz/zstd/lzo、zswap；
+      模塊：nftables 全套（ct/nat/masq/fib/reject/log/limit/compat）和 ufw 用的 xt 匹配、WireGuard、ipvlan、vxlan、dummy、
+      zram、CIFS、ISO9660、dm-crypt、EROFS 等。舊式 iptables 表（NETFILTER_XTABLES_LEGACY）不開：Ubuntu 的 iptables/ufw
+      走 nft 後端。**現在有模塊了**：build-kernel.sh 編譯並安裝到 `out/modules-m6`（含 modules.builtin），
+      `tools/push-modules.sh` 推到 `/usr/lib/modules`。在 Arch 上驗證：nft 規則、iptables-nft 的 conntrack/multiport/
+      recent/LOG、WireGuard 接口、overlay 掛載、erofs、zram 都可用。
+      沒做：BPF LSM（systemd 報「BPF LSM hook not enabled」，RestrictFileSystems= 不生效；要 BPF_LSM + DEBUG_INFO_BTF）。
 - [ ] Ubuntu rootfs：arm64 server 根文件系統 + rootfs-overlay，不裝 Ubuntu 自己的內核和 grub；Wi-Fi 用 netplan 還是
       networkd 直接配；固件（`sunstone-fw-install`）、tqftpserv/rmtfs/pd-mapper 的包。
 

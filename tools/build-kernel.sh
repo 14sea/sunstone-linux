@@ -2,8 +2,8 @@
 # Configure and build the kernel for a milestone (its initramfs is built in).
 #   tools/build-kernel.sh m1
 #   EXTRA_CONFIG=path/to/debug.config tools/build-kernel.sh m6   (extra fragment, e.g. lockdep)
-# Source tree: src/linux-*/ (newest), build tree: out/kbuild, result: out/Image-STAGE plus
-# out/build-STAGE.info (source commit, uncommitted changes, config hash).
+# Source tree: src/linux-*/ (newest), build tree: out/kbuild, result: out/Image-STAGE, the modules in
+# out/modules-STAGE and out/build-STAGE.info (source commit, uncommitted changes, config hash).
 #
 # The source is a git tree made by tools/mk-kernel-tree.sh: upstream tarball, then one commit per
 # kernel/patches/*.patch on the branch `sunstone`, debug work on branches above it. Nothing is
@@ -55,13 +55,20 @@ done
 $M defconfig >/dev/null
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$KB" "$KB/.config" "$ROOT/kernel/platforms-off.config" "$ROOT/kernel/sunstone.config" ${EXTRA_CONFIG:-} >/dev/null
 "$SRC/scripts/config" --file "$KB/.config" --set-str INITRAMFS_SOURCE "$ROOT/out/initramfs-$STAGE.list"
-"$SRC/scripts/config" --file "$KB/.config" --set-str EXTRA_FIRMWARE_DIR "$ROOT/downloads/regdb"
+"$SRC/scripts/config" --file "$KB/.config" --set-str EXTRA_FIRMWARE_DIR "$ROOT/downloads/firmware"
 $M olddefconfig >/dev/null
-for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS USB_CONFIGFS_NCM PHY_QCOM_USB_SNPS_FEMTO_V2 QCOM_Q6V5_PAS ATH10K_SNOC; do
+for o in DRM_SIMPLEDRM FRAMEBUFFER_CONSOLE PSTORE_RAM PSTORE_CONSOLE DEVTMPFS USB_CONFIGFS_NCM PHY_QCOM_USB_SNPS_FEMTO_V2 QCOM_Q6V5_PAS ATH10K_SNOC \
+	SECURITY_APPARMOR OVERLAY_FS PSI; do
 	grep -q "^CONFIG_$o=y" "$KB/.config" || { echo "CONFIG_$o did not end up =y" >&2; exit 1; }
 done
 $M Image
 cp "$KB/arch/arm64/boot/Image" "$ROOT/out/Image-$STAGE"
+# the modules (defconfig's and the server ones), stripped, with modules.builtin so that modprobe also
+# knows what is built in: out/modules-STAGE/lib/modules/RELEASE, copied by tools/push-modules.sh
+$M modules
+rm -rf "$ROOT/out/modules-$STAGE"
+$M INSTALL_MOD_PATH="$ROOT/out/modules-$STAGE" INSTALL_MOD_STRIP=1 modules_install >/dev/null
+REL=$(cat "$KB/include/config/kernel.release")
 
 {
 	echo "stage: $STAGE"
@@ -74,6 +81,7 @@ cp "$KB/arch/arm64/boot/Image" "$ROOT/out/Image-$STAGE"
 	echo "extra config: ${EXTRA_CONFIG:-none}"
 	echo "config: $(grep -v '^#' "$KB/.config" | grep -v '^CONFIG_INITRAMFS_SOURCE=' | sort | sha256sum | cut -c1-16)"
 	echo "Image: $(sha256sum "$ROOT/out/Image-$STAGE" | cut -c1-16)"
+	echo "modules: $REL, $(find "$ROOT/out/modules-$STAGE" -name '*.ko*' | wc -l) files"
 } > "$ROOT/out/build-$STAGE.info"
 cat "$ROOT/out/build-$STAGE.info"
 ls -l "$ROOT/out/Image-$STAGE"
