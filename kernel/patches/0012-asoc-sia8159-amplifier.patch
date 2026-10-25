@@ -1,0 +1,288 @@
+ASoC: codecs: add SIA8159 speaker amplifier driver
+
+The SIA8159 is a mono class-D amplifier with an analog input and an I2C
+control port; on the Xiaomi Redmi Note 12 5G (sunstone) it is fed by the
+WCD9370's AUX output. It has no digital audio interface but registers a
+DAI so it can sit on the DAI link that drives that output and be switched by
+the stream's mute: on at the end of prepare, off at the start of hw_free.
+When the DSP port and the SoundWire stream stop, the line output jumps, and
+an amplifier that is still on makes a loud pop of it; switching it off first
+avoids that (checked by ear on sunstone).
+
+Register values, the chip ID ranges, the on/off sequences and the trimming
+check follow the vendor's sia81xx driver (playback scene).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index 8e251e1d8..28469a53d 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -2063,6 +2063,14 @@ config SND_SOC_SI476X
+ 	tristate
+ 	depends on MFD_SI476X_CORE
+ 
++config SND_SOC_SIA8159
++	tristate "SIA8159 speaker amplifier"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Enable support for the SIA8159 mono class-D speaker amplifier (analog
++	  input, I2C control), e.g. on the Xiaomi Redmi Note 12 5G.
++
+ config SND_SOC_SIGMADSP
+ 	tristate
+ 	select CRC32
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index 3d122ace7..e8797f721 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -433,6 +433,7 @@ snd-soc-zl38060-y := zl38060.o
+ # Amp
+ snd-soc-max9877-y := max9877.o
+ snd-soc-max98504-y := max98504.o
++snd-soc-sia8159-y := sia8159.o
+ snd-soc-simple-amplifier-y := simple-amplifier.o
+ snd-soc-tpa6130a2-y := tpa6130a2.o
+ snd-soc-tas2552-y := tas2552.o
+@@ -887,6 +888,7 @@ obj-$(CONFIG_SND_SOC_ZL38060)	+= snd-soc-zl38060.o
+ # Amp
+ obj-$(CONFIG_SND_SOC_MAX9877)	+= snd-soc-max9877.o
+ obj-$(CONFIG_SND_SOC_MAX98504)	+= snd-soc-max98504.o
++obj-$(CONFIG_SND_SOC_SIA8159)	+= snd-soc-sia8159.o
+ obj-$(CONFIG_SND_SOC_SIMPLE_AMPLIFIER)	+= snd-soc-simple-amplifier.o
+ obj-$(CONFIG_SND_SOC_TPA6130A2)	+= snd-soc-tpa6130a2.o
+ obj-$(CONFIG_SND_SOC_LPASS_MACRO_COMMON)	+= snd-soc-lpass-macro-common.o
+diff --git a/sound/soc/codecs/sia8159.c b/sound/soc/codecs/sia8159.c
+new file mode 100644
+index 000000000..d04c271d8
+--- /dev/null
++++ b/sound/soc/codecs/sia8159.c
+@@ -0,0 +1,227 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SIA8159 mono class-D speaker amplifier with an analog input and an I2C control port.
++ *
++ * The amplifier has no digital audio interface: it takes the codec's analog line output (on the
++ * Xiaomi Redmi Note 12 5G, the WCD9370's AUX). It still gets a DAI, put on the DAI link that feeds
++ * that output, so that it is switched by the stream's mute: on at the end of prepare, off at the
++ * start of hw_free, before the DSP port and the SoundWire stream behind the line output stop. The
++ * line output jumps when they stop, and an amplifier that is still on turns that into a loud pop.
++ *
++ * Register values and the on/off sequences follow the vendor's sia81xx driver (playback scene,
++ * channel L); no gain control is known.
++ */
++
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++#include <sound/soc.h>
++
++#define SIA8159_CHIP_ID		0x00
++#define SIA8159_SYSCTRL		0x01
++#define SIA8159_ALGO_EN		0x02
++#define SIA8159_ALGO_CFG1	0x05
++#define SIA8159_ALGO_CFG2	0x06
++#define SIA8159_STAT1		0x10
++#define SIA8159_STAT2		0x11
++#define SIA8159_TRIM_FIRST	0x20
++#define SIA8159_TRIM_LAST	0x22
++
++#define SIA8159_ALGO_CFG1_ON	BIT(0)
++#define SIA8159_ALGO_CFG2_TRIM	BIT(1)
++
++/* playback defaults, SYSCTRL (0x01) to CLSD_OCPCFG (0x0a) */
++static const u8 sia8159_playback[] = {
++	0xbd, 0x20, 0xae, 0xc9, 0x00, 0x28, 0x73, 0x88, 0x0d, 0xa4,
++};
++
++static const u8 sia8159_trim_defaults[] = { 0x76, 0x66, 0x70 };
++
++struct sia8159 {
++	struct regmap *regmap;
++	struct device *dev;
++};
++
++static const struct regmap_config sia8159_regmap = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = SIA8159_TRIM_LAST,
++	.cache_type = REGCACHE_NONE,
++};
++
++/* CRC-4/ITU (x^4 + x + 1, reflected) over the trimming bytes, as the vendor driver checks them */
++static u8 sia8159_crc4(const u8 *data, size_t len)
++{
++	u8 crc = 0;
++	size_t i;
++	int bit;
++
++	for (i = 0; i < len; i++) {
++		crc ^= data[i];
++		for (bit = 0; bit < 8; bit++)
++			crc = crc & 1 ? (crc >> 1) ^ 0x0c : crc >> 1;
++	}
++	return crc;
++}
++
++static void sia8159_check_trimming(struct sia8159 *sia)
++{
++	u8 trim[ARRAY_SIZE(sia8159_trim_defaults)];
++	u8 crc;
++
++	usleep_range(1000, 1500);	/* the chip loads its trimming after power-up */
++	if (regmap_bulk_read(sia->regmap, SIA8159_TRIM_FIRST, trim, sizeof(trim)))
++		return;
++	crc = trim[sizeof(trim) - 1] & 0x0f;
++	trim[sizeof(trim) - 1] &= 0xf0;
++	if (crc == sia8159_crc4(trim, sizeof(trim)))
++		return;
++
++	/*
++	 * The vendor driver's defaults fail this check themselves (76 66 70: CRC 4, nibble 0), and
++	 * sunstone's chip holds exactly them, so this hits on every power-up there: say it once.
++	 */
++	dev_warn_once(sia->dev, "trimming data fails its CRC, writing the defaults\n");
++	regmap_update_bits(sia->regmap, SIA8159_ALGO_CFG2, SIA8159_ALGO_CFG2_TRIM,
++			   SIA8159_ALGO_CFG2_TRIM);
++	regmap_bulk_write(sia->regmap, SIA8159_TRIM_FIRST, sia8159_trim_defaults,
++			  sizeof(sia8159_trim_defaults));
++}
++
++static int sia8159_on(struct sia8159 *sia)
++{
++	int ret;
++
++	ret = regmap_bulk_write(sia->regmap, SIA8159_SYSCTRL, sia8159_playback,
++				sizeof(sia8159_playback));
++	if (ret)
++		return ret;
++	ret = regmap_update_bits(sia->regmap, SIA8159_ALGO_CFG1, SIA8159_ALGO_CFG1_ON,
++				 SIA8159_ALGO_CFG1_ON);
++	if (ret)
++		return ret;
++	sia8159_check_trimming(sia);
++	return 0;
++}
++
++static int sia8159_off(struct sia8159 *sia)
++{
++	int ret;
++
++	ret = regmap_write(sia->regmap, SIA8159_ALGO_CFG1, 0x00);
++	if (!ret)
++		ret = regmap_write(sia->regmap, SIA8159_SYSCTRL, 0x41);
++	if (!ret)
++		ret = regmap_write(sia->regmap, SIA8159_ALGO_EN, 0x20);
++	usleep_range(1000, 1500);
++	return ret;
++}
++
++static int sia8159_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
++{
++	struct sia8159 *sia = snd_soc_component_get_drvdata(dai->component);
++	unsigned int st1 = 0, st2 = 0;
++	int ret;
++
++	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
++		return 0;
++
++	ret = mute ? sia8159_off(sia) : sia8159_on(sia);
++	if (ret)
++		dev_err(sia->dev, "switching %s failed: %d\n", mute ? "off" : "on", ret);
++	regmap_read(sia->regmap, SIA8159_STAT1, &st1);
++	regmap_read(sia->regmap, SIA8159_STAT2, &st2);
++	dev_dbg(sia->dev, "%s, status %#04x %#04x\n", mute ? "off" : "on", st1, st2);
++	return ret;
++}
++
++static const struct snd_soc_dai_ops sia8159_dai_ops = {
++	.mute_stream = sia8159_mute_stream,
++	.no_capture_mute = 1,
++};
++
++static struct snd_soc_dai_driver sia8159_dai = {
++	.name = "sia8159",
++	.playback = {
++		.stream_name = "Playback",
++		.channels_min = 1,
++		.channels_max = 8,
++		.rates = SNDRV_PCM_RATE_8000_384000,
++		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |
++			   SNDRV_PCM_FMTBIT_S32_LE,
++	},
++	.ops = &sia8159_dai_ops,
++};
++
++static const struct snd_soc_dapm_widget sia8159_widgets[] = {
++	SND_SOC_DAPM_INPUT("IN"),
++	SND_SOC_DAPM_SPK("SPK", NULL),
++};
++
++static const struct snd_soc_dapm_route sia8159_routes[] = {
++	{ "SPK", NULL, "IN" },
++};
++
++static const struct snd_soc_component_driver sia8159_component = {
++	.dapm_widgets = sia8159_widgets,
++	.num_dapm_widgets = ARRAY_SIZE(sia8159_widgets),
++	.dapm_routes = sia8159_routes,
++	.num_dapm_routes = ARRAY_SIZE(sia8159_routes),
++	.endianness = 1,
++};
++
++static int sia8159_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct sia8159 *sia;
++	unsigned int id;
++	int ret;
++
++	sia = devm_kzalloc(dev, sizeof(*sia), GFP_KERNEL);
++	if (!sia)
++		return -ENOMEM;
++	sia->dev = dev;
++	sia->regmap = devm_regmap_init_i2c(client, &sia8159_regmap);
++	if (IS_ERR(sia->regmap))
++		return PTR_ERR(sia->regmap);
++
++	ret = regmap_read(sia->regmap, SIA8159_CHIP_ID, &id);
++	if (ret)
++		return dev_err_probe(dev, ret, "reading the chip ID failed\n");
++	/* the vendor driver's ID ranges for the SIA8159 */
++	if (id != 0x58 && !(id >= 0x60 && id <= 0x68) && !(id >= 0x6a && id <= 0x6f))
++		return dev_err_probe(dev, -ENODEV, "unknown chip ID %#04x\n", id);
++
++	ret = sia8159_off(sia);
++	if (ret)
++		return ret;
++
++	i2c_set_clientdata(client, sia);
++	dev_info(dev, "SIA8159, chip ID %#04x\n", id);
++	return devm_snd_soc_register_component(dev, &sia8159_component, &sia8159_dai, 1);
++}
++
++static const struct of_device_id sia8159_of_match[] = {
++	{ .compatible = "si,sia8159" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sia8159_of_match);
++
++static const struct i2c_device_id sia8159_id[] = {
++	{ "sia8159" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, sia8159_id);
++
++static struct i2c_driver sia8159_driver = {
++	.driver = {
++		.name = "sia8159",
++		.of_match_table = sia8159_of_match,
++	},
++	.probe = sia8159_probe,
++	.id_table = sia8159_id,
++};
++module_i2c_driver(sia8159_driver);
++
++MODULE_DESCRIPTION("SIA8159 speaker amplifier driver");
++MODULE_LICENSE("GPL");

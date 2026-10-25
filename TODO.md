@@ -244,9 +244,20 @@
       已知：`ipa: unexpected init_completed response`：ipa 是模塊，modem（內置 PAS 驅動）在 rootfs 掛載後先開始上電，ipa 錯過
       BEFORE_POWERUP，沒有拿 uC 的代理電源引用。影響只有 uC 的寄存器保持（要 AOSS QMP，這顆 RPM 架構的 SoC 沒有，函數直接
       返回）和 uC 的關閉命令，uC 本身初始化完成。要消除就得讓 modem 晚於 ipa 啟動。
-- [ ] 音頻：揚聲器、聽筒、麥克風、耳機。原廠是 ADSP + APR（`qcom,msm-audio-apr`、q6core、q6 dai），LPASS 的 rx/tx/va macro +
-      SoundWire，codec WCD937x（WCD938x 節點是 disabled；主線有 wcd937x 驅動），揚聲器功放 SIA81xx（I2C 0x29，**主線沒有
-      驅動**），聲卡 `qcom,holi-asoc-snd`。sm6375.dtsi 有 ADSP 的 remoteproc，板級 DTS 沒啟用。
+- [ ] 音頻：揚聲器、聽筒、麥克風、耳機。**揚聲器能用（2026-10-25，boot-140，用户確認：三聲測試音、結尾無爆音）**。
+      原廠：ADSP + APR，LPASS bolero 2.1（rx/tx/va macro + 兩條 SoundWire），codec WCD937x，揚聲器功放 SIA8159（i2c10 0x29，
+      模擬輸入接 WCD 的 AUX，只經 I2C 開關）。主線：holi 的 LPASS 就是 sm6115 的（地址、LPI 腳功能、SoundWire hctl 都一樣），
+      照 Linaro 的 qrb4210-rb2 音頻補丁（2024-12，sm6115 LPASS 節點 + wcd937x）寫進板級 DTS；ADSP 見 boot-137。
+      本地補丁：0011（VA macro 報 v2.2.0，主線不認 → 按 2.1，下游叫 bolero 2.1），0012（`sia8159` 驅動：自己寫的，寄存器值和
+      開關順序照廠商 sia81xx 驅動；掛在 WCD Playback 鏈路上，靠 mute_stream 在 prepare 末尾開、hw_free 開頭關——流停止時
+      AUX 輸出會跳，功放開着就是爆音，先關功放則沒有，用户聽過確認）。
+      現在的路徑：MultiMedia1 → RX_CODEC_DMA_RX_0 → RX0 → RX INT2 → RDAC3（RX3）→ AUX → SIA8159；手動用 amixer 設
+      （`RX_CODEC_DMA_RX_0 Audio Mixer MultiMedia1`、`RX_MACRO RX0/RX1 MUX` AIF1_PB、`RX INT2_1 MIX1 INP0` RX0、`RDAC3_MUX` RX3、
+      `AUX_RDAC Switch`、`LO Switch`，音量 `RX_RX2 Digital Volume`，84 = 0 dB，測試時 54）。功放增益未知（沒有增益寄存器的資料）。
+      剩下：UCM 配置（PipeWire/GNOME 才能用，揚聲器音量）、耳機（HPHL/HPHR、插孔檢測，要用户插耳機）、聽筒（EAR，或 SIA8159
+      的 receiver 模式？）、麥克風（WCD TX AMIC → VA/TX SoundWire → TX macro）。已知告警：SoundWire 端口數比 sm6115 多一個
+      （`din/dout-ports mismatch with controller`）；q6afe 的 LPASS 硬件 devote（0x100f6）被 ADSP 拒絕；SIA8159 的校準 CRC
+      對不上（芯片裡就是廠商默認值 76 66 70，默認值自己也通不過校驗，寫回同樣的值）。測試時音量要小（用户要求）。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上，要 hexagonrpcd + libssc（postmarketOS，第三方代碼）。
 - [ ] NFC：ST21NFC（I2C 0x08），查主線 st-nci 是否兼容。
 - [ ] 攝像頭：原廠 IFE/OPE/CCI（cam-isp）；主線 CAMSS 不支持 sm6375，sm6375.dtsi 也沒有 CAMSS / CCI 節點。工作量很大，大概率不做。

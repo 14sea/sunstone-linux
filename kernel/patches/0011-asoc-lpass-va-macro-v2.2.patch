@@ -1,0 +1,27 @@
+ASoC: codecs: lpass-va-macro: accept the v2.2 core of SM6375/SM4375
+
+The VA macro of SM6375 and SM4375 (holi, blair) reports core version 2.2.0,
+which va_macro_set_lpass_codec_version() does not know, so the probe fails
+with "VA Macro v2.2.0 is not supported" and the RX and TX macros, which take
+their fsgen clock from it, never probe either. The downstream kernel calls this
+LPASS codec bolero 2.1 (qcom,bolero-version = <5>); its register layout is the
+pre-2.5 one, which the RX macro handles together for 2.0 and 2.1. Treat 2.2 as
+LPASS_CODEC_VERSION_2_1.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/codecs/lpass-va-macro.c b/sound/soc/codecs/lpass-va-macro.c
+index dbc5795b9..44ad69e0f 100644
+--- a/sound/soc/codecs/lpass-va-macro.c
++++ b/sound/soc/codecs/lpass-va-macro.c
+@@ -1508,6 +1508,10 @@ static int va_macro_set_lpass_codec_version(struct va_macro *va)
+ 		case 0:
+ 			version = LPASS_CODEC_VERSION_2_0;
+ 			break;
++		case 2:
++			/* SM6375/SM4375 (holi, blair): downstream calls it bolero 2.1 */
++			version = LPASS_CODEC_VERSION_2_1;
++			break;
+ 		case 5:
+ 			version = LPASS_CODEC_VERSION_2_5;
+ 			break;
