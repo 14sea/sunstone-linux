@@ -29,9 +29,24 @@ def key_device():
 def tioclinux(tty, sub):
 	return fcntl.ioctl(tty, TIOCLINUX, bytearray([sub]))
 
-def text_mode(tty):
+vts = {}
+
+def text_mode():
+	"""is the foreground VT in text mode? (/dev/tty0 is bound to the VT in front when it is opened,
+	so the VT is looked up each time; a VT hung up when its desktop session ended is opened again)"""
+	with open('/sys/class/tty/tty0/active') as f:
+		vt = f.read().strip()
 	mode = bytearray(4)
-	fcntl.ioctl(tty, KDGETMODE, mode)
+	for attempt in (1, 2):
+		if vt not in vts:
+			vts[vt] = os.open('/dev/' + vt, os.O_RDWR | os.O_NOCTTY)
+		try:
+			fcntl.ioctl(vts[vt], KDGETMODE, mode)
+			break
+		except OSError:
+			os.close(vts.pop(vt))
+			if attempt == 2:
+				raise
 	return int.from_bytes(mode, sys.byteorder) == KD_TEXT
 
 def desktop():
@@ -61,6 +76,9 @@ def touch(on):
 			if int(f.read(), 16) & INPUT_PROP_DIRECT:
 				write(d + '/inhibited', 0 if on else 1)
 
+def log(msg):
+	print(msg, flush=True)
+
 def write(path, value):
 	with open(path, 'w') as f:
 		f.write(str(value))
@@ -84,7 +102,7 @@ while True:
 		for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
 			_, _, type_, code, value = EVENT.unpack_from(data, i)
 			pressed |= type_ == EV_KEY and code == KEY_POWER and value == 1
-	if not text_mode(tty):
+	if not text_mode():
 		forced = False
 		if gnome_off is not None and not pressed:
 			# woken by the desktop itself (another key): release the touchscreen again
@@ -92,6 +110,7 @@ while True:
 				if '<0>' in mutter(gnome_off, 'Get'):
 					touch(True)
 					gnome_off = None
+					log('GNOME turned its display on again')
 			except subprocess.SubprocessError:
 				pass
 		if not (GRAPHICS and pressed):
@@ -107,6 +126,7 @@ while True:
 				mutter(d[1], 'Set', '<int32 %d>' % (3 if off else 0))
 				touch(not off)
 				gnome_off = d[1] if off else None
+				log('power key: GNOME display ' + ('off' if off else 'on'))
 			except subprocess.SubprocessError:
 				pass
 		elif d:
