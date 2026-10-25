@@ -146,7 +146,8 @@
       recent/LOG、WireGuard 接口、overlay 掛載、erofs、zram 都可用。
       沒做：BPF LSM（systemd 報「BPF LSM hook not enabled」，RestrictFileSystems= 不生效；要 BPF_LSM + DEBUG_INFO_BTF）。
 - [ ] Ubuntu rootfs：arm64 server 根文件系統 + rootfs-overlay，不裝 Ubuntu 自己的內核和 grub；Wi-Fi 用 netplan 還是
-      networkd 直接配；固件（`sunstone-fw-install`）、tqftpserv/rmtfs/pd-mapper 的包。
+      networkd 直接配；固件（`sunstone-fw-install`）、tqftpserv/rmtfs/pd-mapper 的包；內核模塊（`out/modules-m6`，
+      `tools/mkrootfs.sh` 目前還不裝它們，只有 `tools/push-modules.sh`）。
 
 ## 以後
 
