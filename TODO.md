@@ -145,9 +145,18 @@
       `tools/push-modules.sh` 推到 `/usr/lib/modules`。在 Arch 上驗證：nft 規則、iptables-nft 的 conntrack/multiport/
       recent/LOG、WireGuard 接口、overlay 掛載、erofs、zram 都可用。
       沒做：BPF LSM（systemd 報「BPF LSM hook not enabled」，RestrictFileSystems= 不生效；要 BPF_LSM + DEBUG_INFO_BTF）。
-- [ ] Ubuntu rootfs：arm64 server 根文件系統 + rootfs-overlay，不裝 Ubuntu 自己的內核和 grub；Wi-Fi 用 netplan 還是
-      networkd 直接配；固件（`sunstone-fw-install`）、tqftpserv/rmtfs/pd-mapper 的包；內核模塊（`out/modules-m6`，
-      `tools/mkrootfs.sh` 目前還不裝它們，只有 `tools/push-modules.sh`）。
+- [x] **Ubuntu Server 26.04 LTS 裝好並運行**（2026-10-25，boot-124/125，見 LOG.md）：`tools/mkrootfs-ubuntu.sh` 在手機上
+      本地構建（debootstrap minbase + 挑選的包，apt pin 禁止 Ubuntu 內核/grub/flash-kernel；rmtfs.service（`-P`，直接用
+      EFS 分區）和 qrtr-ns 在裝包前 mask；networkd 直接配，不用 netplan），搬過來 EFS 副本、Wi-Fi、ssh 主機密鑰、
+      machine-id、RTC 偏移，chroot 裏跑 `sunstone-fw-install`，做成 8G ext4 鏡像；`tools/install-rootfs.sh` 經救援模式寫入
+      userdata（讀回校驗），首次開機 `x-systemd.growfs` 擴到 102G。
+- [ ] 要用户決定：普通用户帳號（現在只有 root + 密鑰，和 Arch 一樣）、ufw 是否啟用（裝了，未啟用）、
+      Phosh（Arch 上保留的桌面在 Ubuntu 上沒裝；Arch 時要打 wlroots 補丁）、unattended-upgrades（已開，只裝安全更新，
+      內核被 pin 擋住）。
+- [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
+      modem 和 Wi-Fi 正常，有問題再換。
+- [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。
+- [ ] Ubuntu 上跑一次 24 h 穩定性測試（之前用户說先不開始）。
 
 ## 以後
 

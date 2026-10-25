@@ -15,7 +15,7 @@ set -eu
 FW=/lib/firmware/qcom/sm4375/xiaomi/sunstone
 EFS=/var/lib/rmtfs
 MNT=$(mktemp -d) VND=$(mktemp -d) LOOP=
-trap 'umount "$MNT" "$VND" 2>/dev/null; [ -n "$LOOP" ] && losetup -d "$LOOP"; rmdir "$MNT" "$VND"' EXIT
+trap 'umount "$MNT" "$VND" 2>/dev/null; [ -n "$LOOP" ] && losetup -d "$LOOP"; rmdir "$MNT" "$VND"; rm -f "$MNT.board-2.bin"' EXIT
 
 mount -o ro /dev/disk/by-partlabel/modem_a "$MNT"
 mkdir -p "$FW"
@@ -35,7 +35,13 @@ echo "zap shader: $(ls "${zap%.mdt}".* | sed "s|^$VND||" | tr '\n' ' ')"
 
 BD=ath10k/WCN3990/hw1.0
 mkdir -p /lib/firmware/updates/$BD
-sunstone-mkboard2 /lib/firmware/$BD/board-2.bin "$FW/bdwlan.${WLAN_BDF:-sung}" \
+# linux-firmware's board-2.bin, plain (Arch) or compressed (Ubuntu: .zst)
+B2=/lib/firmware/$BD/board-2.bin
+if [ ! -e $B2 ]; then
+	if [ -e $B2.zst ]; then zstd -dqc $B2.zst > "$MNT.board-2.bin"; else xz -dc $B2.xz > "$MNT.board-2.bin"; fi
+	B2=$MNT.board-2.bin
+fi
+sunstone-mkboard2 $B2 "$FW/bdwlan.${WLAN_BDF:-sung}" \
 	bus=snoc,qmi-board-id=ff,qmi-chip-id=150,variant=xiaomi_sunstone /lib/firmware/updates/$BD/board-2.bin
 
 mkdir -p "$EFS"

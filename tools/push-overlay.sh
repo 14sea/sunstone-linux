@@ -1,5 +1,6 @@
 #!/bin/bash
-# Copy rootfs-overlay/ onto the running phone (as root:root) through the test host, then reload
+# Copy rootfs-overlay/ (the distribution-neutral files; rootfs-overlay-arch/ is Arch's Phosh setup)
+# onto the running phone (as root:root) through the test host, then reload
 # systemd and logind. mkrootfs.sh puts the same files into a fresh image.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/.." && pwd)
