@@ -150,9 +150,13 @@
       EFS 分區）和 qrtr-ns 在裝包前 mask；networkd 直接配，不用 netplan），搬過來 EFS 副本、Wi-Fi、ssh 主機密鑰、
       machine-id、RTC 偏移，chroot 裏跑 `sunstone-fw-install`，做成 8G ext4 鏡像；`tools/install-rootfs.sh` 經救援模式寫入
       userdata（讀回校驗），首次開機 `x-systemd.growfs` 擴到 102G。
-- [ ] 要用户決定：普通用户帳號（現在只有 root + 密鑰，和 Arch 一樣）、ufw 是否啟用（裝了，未啟用）、
-      Phosh（Arch 上保留的桌面在 Ubuntu 上沒裝；Arch 時要打 wlroots 補丁）、unattended-upgrades（已開，只裝安全更新，
-      內核被 pin 擋住）。
+- [x] 用户決定（2026-10-25）：先只用 root；**ufw 啟用，只放行 ssh**（加上 usb0 上給測試主機的 DHCP）。第一次啟用時
+      內核缺 REJECT/hl/rt 模塊，規則只加載了一半，22 端口沒放行、默認拒絕卻生效，兩條 ssh 都斷了；事先設的 5 分鐘
+      `ufw disable` 保險把它關掉。補上模塊（boot-126）後啟用無報錯，8080 從 Wi-Fi 和 USB 都連不上，重啟後照常加載。
+      unattended-upgrades 已開（只裝安全更新，內核被 pin 擋住）。
+- [ ] 桌面：用户問 Ubuntu Touch。UBports 的系統要 Halium/Android 內核，用不了；它的外殼 Lomiri（0.5.0，Qt + Mir）在
+      Ubuntu 26.04 universe 裡，424 個包 / 628 MB，這台手機上沒試過。Phosh 0.54：444 個包 / 713 MB，Arch 上要打
+      wlroots 補丁。都沒有音頻、相機、通話；作為可選會話，默認仍是文本模式。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。

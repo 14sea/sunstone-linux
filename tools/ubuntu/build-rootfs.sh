@@ -146,6 +146,17 @@ chroot "$R" systemctl disable -q systemd-networkd-wait-online.service wpa_suppli
 # a root login on the ACM port too (host: /dev/ttyACM0)
 chroot "$R" systemctl enable -q serial-getty@ttyGS0.service
 
+# firewall: ssh in on any interface, DHCP from the USB host (networkd's DHCP server on usb0 gives it
+# its address), nothing else in. While inactive, ufw only writes its rule files; ENABLED=yes loads
+# them at boot. It needs the REJECT, hl and rt netfilter modules (kernel/sunstone.config).
+chroot "$R" ufw --force reset >/dev/null
+chroot "$R" ufw default deny incoming >/dev/null
+chroot "$R" ufw default allow outgoing >/dev/null
+chroot "$R" ufw allow 22/tcp comment ssh >/dev/null
+chroot "$R" ufw allow in on usb0 to any port 67 proto udp comment 'DHCP for the USB host' >/dev/null
+sed -i 's/^ENABLED=.*/ENABLED=yes/' "$R/etc/ufw/ufw.conf"
+rm -f "$R"/etc/ufw/*.rules.[0-9]*
+
 # journal into the kernel log, so it also reaches netconsole
 install -d "$R/etc/systemd/journald.conf.d"
 printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=notice\n' > "$R/etc/systemd/journald.conf.d/kmsg.conf"
