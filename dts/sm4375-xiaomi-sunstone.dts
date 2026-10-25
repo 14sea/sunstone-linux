@@ -248,6 +248,57 @@
 			#phy-cells = <0>;
 		};
 
+		/*
+		 * IPA (the modem's data path): the downstream node is qcom,ipa-hw-ver 0x14 = IPA v4.11, as on
+		 * sc7280, so mainline's v4.11 data. Downstream: ipa-base 0x5800000 (the IPA registers at
+		 * +0x40000, the shared memory at +0x50000 as on sc7280's 0x1e00000 block), gsi-base 0x5804000,
+		 * IRQ SPI 257 / 259 level, SMMU streams 0x4a0 (AP) and 0x4a2 (uC), core clock = RPM IPA clock,
+		 * the GSI firmware ipa_fws (PAS 15) loaded by Linux into the ipa-fw carve-out, the modem's
+		 * tables in IMEM at 0xc123000 (downstream qcom,additional-mapping). The shared memory is 0x3000
+		 * bytes (SHARED_MEM_SIZE; sc7280's 0x4ad0 gets "limiting IPA memory size"). No interconnect driver for
+		 * sm6375: no bus votes (the ipa driver skips paths that are not described).
+		 */
+		ipa: ipa@5840000 {
+			compatible = "qcom,sc7280-ipa";
+
+			iommus = <&apps_smmu 0x4a0 0x0>,
+				 <&apps_smmu 0x4a2 0x0>;
+			reg = <0x0 0x05840000 0x0 0x8000>,
+			      <0x0 0x05850000 0x0 0x3000>,
+			      <0x0 0x05804000 0x0 0x23000>;
+			reg-names = "ipa-reg",
+				    "ipa-shared",
+				    "gsi";
+
+			interrupts-extended = <&intc GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH>,
+					      <&intc GIC_SPI 259 IRQ_TYPE_LEVEL_HIGH>,
+					      <&ipa_smp2p_in 0 IRQ_TYPE_EDGE_RISING>,
+					      <&ipa_smp2p_in 1 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "ipa",
+					  "gsi",
+					  "ipa-clock-query",
+					  "ipa-setup-ready";
+
+			clocks = <&rpmcc RPM_SMD_IPA_CLK>;
+			clock-names = "core";
+
+			qcom,smem-states = <&ipa_smp2p_out 0>,
+					   <&ipa_smp2p_out 1>;
+			qcom,smem-state-names = "ipa-clock-enabled-valid",
+						"ipa-clock-enabled";
+
+			qcom,gsi-loader = "self";
+			memory-region = <&pil_ipa_fw_mem>;
+			firmware-name = "qcom/sm4375/xiaomi/sunstone/ipa_fws.mdt";
+
+			sram = <&ipa_modem_tables>;
+		};
+
+		/* IMEM slice for the modem's IPA tables (sm6375.dtsi's imem node starts at 0xc125000) */
+		ipa_modem_tables: sram@c123000 {
+			reg = <0x0 0x0c123000 0x0 0x2000>;
+		};
+
 		gpu: gpu@5900000 {
 			compatible = "qcom,adreno-619.1", "qcom,adreno";
 			reg = <0x0 0x05900000 0x0 0x40000>,

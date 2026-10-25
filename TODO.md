@@ -234,9 +234,16 @@
 - [x] 紅外發射（2026-10-25，boot-134，用户用相機看到紅外燈在閃）：QUP0 SE2 的 SPI（`spi2`，GPIO45/46/56/57，GPI DMA，要開
       `gpi_dma0`），`ir-spi-led` 19.2 MHz，`/dev/lirc0`（只發不收）。`ir-ctl -d /dev/lirc0 -S nec:0x0408`（Ubuntu 的
       `ir-keytable` 包，已加進 build-rootfs.sh）。沒對真的電器測過。
-- [ ] 蜂窩網絡：通話、數據、短信。手機原廠 DT 的 IPA 是 `qcom,ipa-hw-ver = <0x14>`（下游枚舉 = IPA v4.11，主線
-      `drivers/net/ipa` 支持，sc7280 就是 v4.11），0x5800000 / GSI 0x5804000，IRQ SPI 257/259，固件 `ipa_fws`（PAS 15），
-      SMMU 流 0x4a0–0x4a3。**手機裡沒有 SIM 卡**：先只做 IPA 和 modem 握手、rmnet 出現；數據、短信等有卡再測。
+- [ ] 蜂窩網絡：通話、數據、短信。**第一步做完（2026-10-25，boot-135/136）**：IPA v4.11（原廠 `qcom,ipa-hw-ver = <0x14>`），
+      主線 `ipa` 模塊用 `qcom,sc7280-ipa` 的數據：寄存器 0x5840000、共享內存 0x5850000（0x3000，硬件報的大小）、GSI 0x5804000，
+      IRQ SPI 257/259，SMMU 0x4a0/0x4a2，RPM IPA 時鐘，GSI 固件 `ipa_fws`（vendor_a 的 firmware/，`sunstone-fw-install` 拷貝，
+      PAS 15，Linux 加載進 ipa-fw 載體），modem 表在 IMEM 0xc123000。開機 `IPA driver setup completed`、收到 modem running，
+      `rmnet_ipa0` 出現，modem 和 Wi-Fi 不受影響。QMI 經 QRTR（`libqmi-utils`，`qmicli -d qrtr://0`）：DMS/UIM/NAS 應答，
+      MPSS.HI.4.3.4，LTE + 5G NR；兩個卡槽 `no-atr-received`（**沒有 SIM 卡**），未註冊。operating mode 報 `shutting-down`，有卡時看。
+      剩下（等 SIM 卡）：ModemManager（支持 QRTR）、數據撥號（rmnet + WDS）、短信；通話要音頻。
+      已知：`ipa: unexpected init_completed response`：ipa 是模塊，modem（內置 PAS 驅動）在 rootfs 掛載後先開始上電，ipa 錯過
+      BEFORE_POWERUP，沒有拿 uC 的代理電源引用。影響只有 uC 的寄存器保持（要 AOSS QMP，這顆 RPM 架構的 SoC 沒有，函數直接
+      返回）和 uC 的關閉命令，uC 本身初始化完成。要消除就得讓 modem 晚於 ipa 啟動。
 - [ ] 音頻：揚聲器、聽筒、麥克風、耳機。原廠是 ADSP + APR（`qcom,msm-audio-apr`、q6core、q6 dai），LPASS 的 rx/tx/va macro +
       SoundWire，codec WCD937x（WCD938x 節點是 disabled；主線有 wcd937x 驅動），揚聲器功放 SIA81xx（I2C 0x29，**主線沒有
       驅動**），聲卡 `qcom,holi-asoc-snd`。sm6375.dtsi 有 ADSP 的 remoteproc，板級 DTS 沒啟用。
