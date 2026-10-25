@@ -1,11 +1,35 @@
 # sunstone-linux
 
 Mainline Linux (7.3) and Ubuntu Server 26.04 LTS on the **Xiaomi Redmi Note 12 5G** (`sunstone`,
-Qualcomm SM4375 "blair" / Snapdragon 4 Gen 1), brought up one milestone at a time (with Arch Linux
-ARM until 2026-10-25), now run as a mostly screen-off server.
+Qualcomm SM4375 "blair" / Snapdragon 4 Gen 1), run as a mostly screen-off server, with GNOME or
+Lomiri as an optional desktop. Brought up one milestone at a time, with Arch Linux ARM until
+2026-10-25. No Android, no Halium: the stock bootloaders chainload a boot shim, the shim boots the
+mainline kernel, the kernel boots Ubuntu from `userdata`.
 The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 
-## Status (2026-10-23, evening)
+## Status (2026-10-25)
+
+| Hardware | State |
+| --- | --- |
+| CPU, memory, UFS | 6x A55 + 2x A78 with cpufreq and cooling maps, 8 GB, UFS (local patch 0001) |
+| Display | 1080x2400 AMOLED, DSI + DSC panel driver (0008), 120 Hz and 60 Hz, backlight, power-key blanking |
+| GPU | Adreno 619 (0007), freedreno (Mesa), OpenGL 4.6 (Vulkan not tried); zap shader from the phone's vendor partition |
+| Touch, keys | FT5452 touchscreen (0002), power and volume keys |
+| Wi-Fi | WCN3988 over ath10k, the modem (MPSS) running its firmware; Xiaomi's board data from `modem_a` |
+| Bluetooth | WCN3988 on its UART, Xiaomi's firmware from `bluetooth_a`; classic and LE keyboards and mice tested |
+| Battery | SM5602 fuel gauge (0003), SC89890H charger (0004), charge limit 4.1 V for life on the charger |
+| USB | NCM + ACM gadget (ssh and a serial console from the host) |
+| Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, QRTR HELLO fix (0010) for the modem's init stall |
+| Not working | audio, cameras, cellular voice/data/SMS, sensors, fingerprint, suspend, pstore |
+
+| Software | |
+| --- | --- |
+| System | Ubuntu Server 26.04 LTS on `userdata`, built on the phone itself (`tools/mkrootfs-ubuntu.sh`), no Ubuntu kernel or boot loader; root over ssh only, ufw with ssh in |
+| Network | systemd-networkd + wpa_supplicant by default; NetworkManager for Wi-Fi when a desktop wants it (`tools/ubuntu/wifi-to-networkmanager.sh`); usb0 always networkd |
+| Desktops | optional, started by hand on tty7: GNOME (Ubuntu session, landscape, `tools/ubuntu/add-gnome.sh`) or Lomiri, Ubuntu Touch's shell (`tools/ubuntu/add-lomiri.sh`) |
+
+Open items are in `TODO.md` (GNOME's smoothness, panel brightness curve, DSI PHY clock warning,
+dispcc PLL latch, BPF LSM, ...).
 
 | Milestone | State |
 | --- | --- |
@@ -15,10 +39,8 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | M4 hardware | UFS, keys, FT5452 touch, SM5602 fuel gauge, SC89890H charger, RTC offset, PON reboot modes |
 | M5 Wi-Fi | modem (MPSS) + WCN3988 over ath10k, joins on boot |
 | M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver, built in |
-| Server | Ubuntu Server 26.04 on `userdata` (no Ubuntu kernel); watchdog from the boot shim on, boot marked successful for ABL, charge limit 4.1 V, text console with power-key blanking |
-
-Open items are in `TODO.md` (panel error paths, DSI PHY clock warning, dispcc PLL latch, BPF LSM,
-...).
+| Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak |
+| Ubuntu | Ubuntu Server 26.04 replaces Arch; Bluetooth; GNOME and Lomiri as optional desktops |
 
 ## How it boots
 
