@@ -1,0 +1,50 @@
+#!/usr/bin/python3
+# sunstone: the power key turns the text console off and on. Nothing happens while the console is
+# in graphics mode (Phosh handles the key itself then). A blank by the console's own timer
+# (consoleblank=) is made a forced one, so that only this key brings the screen back, not any key
+# press or kernel message.
+import fcntl, glob, os, select, struct, sys
+
+TIOCLINUX, KDGETMODE, KD_TEXT = 0x541C, 0x4B3B, 0
+TIOCL_UNBLANKSCREEN, TIOCL_BLANKSCREEN, TIOCL_BLANKEDSCREEN = 4, 14, 15
+EV_KEY, KEY_POWER = 1, 116
+EVENT = struct.Struct('llHHi')
+
+def key_device():
+	for d in glob.glob('/sys/class/input/event*'):
+		with open(d + '/device/name') as f:
+			if f.read().strip() == 'pm8941_pwrkey':
+				return '/dev/input/' + os.path.basename(d)
+	sys.exit('no pm8941_pwrkey input device')
+
+def tioclinux(tty, sub):
+	return fcntl.ioctl(tty, TIOCLINUX, bytearray([sub]))
+
+def text_mode(tty):
+	mode = bytearray(4)
+	fcntl.ioctl(tty, KDGETMODE, mode)
+	return int.from_bytes(mode, sys.byteorder) == KD_TEXT
+
+key = os.open(key_device(), os.O_RDONLY)
+tty = os.open('/dev/tty0', os.O_RDWR | os.O_NOCTTY)
+forced = False
+while True:
+	ready, _, _ = select.select([key], [], [], 1)
+	pressed = False
+	if ready:
+		data = os.read(key, EVENT.size * 64)
+		for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+			_, _, type_, code, value = EVENT.unpack_from(data, i)
+			pressed |= type_ == EV_KEY and code == KEY_POWER and value == 1
+	if not text_mode(tty):
+		forced = False
+		continue
+	blanked = tioclinux(tty, TIOCL_BLANKEDSCREEN) != 0
+	if pressed:
+		tioclinux(tty, TIOCL_UNBLANKSCREEN if blanked else TIOCL_BLANKSCREEN)
+		forced = not blanked
+	elif blanked and not forced:
+		tioclinux(tty, TIOCL_BLANKSCREEN)
+		forced = True
+	elif not blanked:
+		forced = False

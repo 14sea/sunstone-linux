@@ -1,0 +1,10 @@
+[Unit]
+Description=sunstone power key: text console off/on
+
+[Service]
+ExecStart=/usr/local/sbin/sunstone-powerkey
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

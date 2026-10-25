@@ -105,9 +105,12 @@
       未做：`cpu-unk0/1` 未綁定；電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；
       真實高負載下的溫度曲線放到長時間測試裏看。
 - [ ] 長時間穩定性測試（24–48 h）：內存、溫度、Wi-Fi 斷線、內核錯誤；電池在 4.0–4.1 V 之間的小幅循環。
-- [ ] 文本模式下電源鍵只能喚醒屏幕、不能熄屏（Phosh 不在，logind 忽略電源鍵；空閒 120 s 才自動熄）。
-      想法：一個小服務用 `evtest` 監聽 KEY_POWER，屏幕亮著時按下就 `setterm --blank force`（熄着時按鍵本身就喚醒）。
-      穩定性測試之後再做。現在手動熄屏：`TERM=linux setterm --blank force </dev/tty1 >/dev/tty1`。
+- [x] 文本模式下電源鍵熄屏/亮屏（2026-10-25，用户按鍵確認：亮、滅、亮）：`sunstone-powerkey.service` 監聽 pm8941_pwrkey，
+      控制台是文本模式時用 `TIOCLINUX` 切換（BLANKEDSCREEN 查狀態，BLANKSCREEN/UNBLANKSCREEN）；圖形模式（Phosh）時不管。
+      `consoleblank` 的自動熄屏被改成強制熄屏，所以只有電源鍵能點亮，其他按鍵和內核消息不會。
+- [x] 健康日誌的 `kerr` 改從 journal 數本次開機的內核錯誤（環形緩衝區會被擠掉）；root 開 linger
+      （`/var/lib/systemd/linger/root`）：以前每次 ssh 都重新拉起 user@0（約 0.8 s），還打一條 `pam_warn(systemd-user:setcred)`
+      （`/usr/lib/pam.d/systemd-user` 沒有 auth 段，setcred 落到 `other`），測試主機每分鐘探測一次就刷滿了 dmesg。
 - [ ] Wi-Fi 健壯性：路由器重啟後重連（未測）。開機時 modem 卡 65 s 的問題已修（見上，補丁 0010）。
 
 ## 以後

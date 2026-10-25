@@ -1,7 +1,8 @@
 #!/bin/sh
 # sunstone: one line of health data per run (sunstone-health.timer, every minute) appended to
 # /var/log/sunstone-health.log: boot, uptime, load, memory, temperatures, battery and charger,
-# CPU frequency caps (throttling), Wi-Fi and gateway reachability, modem, kernel errors, failed units.
+# CPU frequency caps (throttling), Wi-Fi and gateway reachability, modem, kernel errors this boot
+# (from the journal: the ring buffer can lose them), failed units.
 LOG=/var/log/sunstone-health.log
 zone() { # max temperature in C of the zones whose type matches one of the patterns
 	m=-999
@@ -35,4 +36,4 @@ printf '%s boot=%s up=%s load=%s memavail_mb=%s cpu=%s gpu=%s batt=%s chg=%s pmi
 	"$(cat $C/constant_charge_voltage 2>/dev/null)" "$(cat $P0/scaling_max_freq)" "$(cat $P6/scaling_max_freq)" \
 	"$(cat $P6/scaling_cur_freq)" "$(cat /sys/class/net/wlan0/operstate 2>/dev/null || echo none)" "${sig:-none}" \
 	"$rtt" "$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)" \
-	"$(dmesg -l err,crit,alert,emerg 2>/dev/null | wc -l)" "$(systemctl --failed --no-legend 2>/dev/null | wc -l)" >> "$LOG"
+	"$(journalctl -k -b -p err -q --no-pager 2>/dev/null | wc -l)" "$(systemctl --failed --no-legend 2>/dev/null | wc -l)" >> "$LOG"
