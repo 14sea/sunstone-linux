@@ -1,5 +1,0 @@
-// SPDX-License-Identifier: BSD-3-Clause
-/* display bisect (boot-34 died within a second, no pstore): m6d with dispcc only, MDSS off */
-#include "sm4375-xiaomi-sunstone-m6d.dts"
-
-&mdss { status = "disabled"; };

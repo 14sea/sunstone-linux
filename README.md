@@ -32,7 +32,7 @@ does: without it ABL counts down boot_a's tries and stops in fastboot after 7 re
 
 | Path | What |
 | --- | --- |
-| `dts/` | Board DTS per milestone, each including the previous one (m1 -> ... -> m6 -> m6d) |
+| `dts/` | The board DTS (`sm4375-xiaomi-sunstone.dts`) and its rescue-mode variant; the per-milestone chain it was merged from is at the git tag `dts-milestones` |
 | `kernel/` | `sunstone.config` fragment, local patches (`patches/`, one per commit of the kernel tree's `sunstone` branch) and debugging aids (`debug/`) |
 | `initramfs/` | Built-in initramfs per milestone (`init-mN`, `mN.list`) |
 | `shim/` | The boot shim and the boot image wrapper |
@@ -45,7 +45,8 @@ does: without it ABL counts down boot_a's tries and stops in fastboot after 7 re
 # downloads/linux-7.3.tar.xz + sha256sums.asc from kernel.org, aarch64-linux-gnu- cross toolchain
 tools/mk-kernel-tree.sh 7.3       # -> src/linux-7.3: git tree, tarball + one commit per kernel/patches file
 tools/build-kernel.sh m6          # -> out/Image-m6 and out/build-m6.info (checks patches = branch)
-KSTAGE=m6 tools/mkboot.sh m6d     # -> out/boot-m6d.img: m6 kernel, m6d DTB, shim
+tools/mkboot.sh sunstone          # -> out/boot-sunstone.img: m6 kernel, board DTB, shim
+tools/mkboot.sh rescue            # -> out/boot-rescue.img: rescue mode (USB ssh, userdata unmounted)
 tools/mkrootfs.sh                 # -> out/rootfs-arch.img for userdata
 cp tools/host.conf.example tools/host.conf   # then tools/flash.sh STAGE N
 ```

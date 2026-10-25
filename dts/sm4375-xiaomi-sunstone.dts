@@ -1,0 +1,1075 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Xiaomi Redmi Note 12 5G (sunstone), SM4375 "blair".
+ *
+ * Built on mainline's sm6375.dtsi ("holi", the SoC blair derives from: same CPU, GIC, GCC clock/reset
+ * indices and USB block as the downstream blair DT). Board values from the phone's live DT
+ * (2026-10-20) and the downstream DT. Until 2026-10-25 this was a chain of one tree per milestone
+ * (m1 -> ... -> m6 -> m6d, each including the previous one); git tag dts-milestones has them.
+ *
+ * - USB: HS PHY on RPM regulators, dwc3 as a peripheral (the NCM gadget carries ssh).
+ * - UFS: ufshc@4804000 with one lane and a QMP v4 PHY that downstream drives as
+ *   "qcom,ufs-phy-qmp-v4-yupik" (SC7280 tables, kernel/patches/0001 adds the one-lane sm6375
+ *   entry). Inline crypto (ICE) is left out. No interconnect driver for sm6375 yet: bus votes stay
+ *   as ABL left them.
+ * - PMICs as on the downstream DT and Sony's pdx225: PM6125 (SID 0/1), PMK8350 on SID 6, PMR735A.
+ *   Keys (downstream gpio-keys and qpnp-power-on): power = PM6125 PON KPDPWR, volume down = PM6125
+ *   PON RESIN, volume up = PMR735A GPIO1 (active low) -- the reverse of pdx225's volume keys.
+ *   RTC: PMK8350 (read-only for Linux; the offset to real time is kept in userspace).
+ * - Touch: FocalTech FT5452 at 0x38 on i2c8 (QUP1 SE2, GPIO19/20). TZ leaves that SE in GSI mode
+ *   (FIFO disabled), which i2c-qcom-geni handles through GPI DMA. Reset GPIO21, IRQ GPIO22, AVDD
+ *   switched by GPIO49 (downstream focaltech,avdd-gpio); the IO supply stays as ABL set it.
+ * - Battery: on i2c7 (QUP1 SE1, GPIO27/28, FIFO mode), the SC8989X charger at 0x6a (BQ25890
+ *   register map; IRQ GPIO48, charge enable GPIO53 low) and the SM5602 gauge at 0x71 (local patch
+ *   0003).
+ * - Modem (MPSS PAS) running the WLAN firmware of the WCN3988 (chip 0x150, WLAN.HL.3.3.2), which
+ *   Linux talks to through ath10k snoc. Firmware comes read-only from the phone's modem_a partition
+ *   (sunstone-fw-install in rootfs-overlay); rmtfs serves copies of modemst1/2, fsg and fsc, so the
+ *   EFS partitions are never written. WLAN supplies as on the downstream icnss node (and Sony's
+ *   pdx225): cx-mx PMR735A L2, 1.8 V XO PM6125 L16, 1.3 V RFA PM6125 L2, 3.3 V ch0/ch1 PM6125
+ *   L23/L21. MSA at wlan@86500000 and the modem carveout at 0x8b800000 match the dtsi.
+ * - GPU: sm6375.dtsi has no GPU nodes. This is mainline's a619_holi (chip id 0x06010901, GMU
+ *   wrapper as on sm6115's a610), with values from the downstream kgsl node: registers 0x5900000 /
+ *   cx 0x599e000 / dbgc 0x5961000, GMU wrapper 0x596a000, IRQ SPI 177, GX rail = RPM pm6125_s8
+ *   levels (rpmpd VDDGX). Speed bins from the qfprom fuse at 0x6015 (downstream gpu_speed_bin):
+ *   bins 0 and 190 run up to 900 MHz, 177 up to 840 MHz, 148 (this phone) up to 700 MHz; 650 MHz
+ *   and below are common to all. The zap shader is the phone's own a615_zap (vendor partition, not
+ *   in this repository).
+ * - Display: MDSS/DPU/DSI laid out as mainline's qcom,sm6375-mdss binding example, with the
+ *   downstream DT's values: MDSS IRQ SPI 186 (the binding example's 83 is not this SoC's), apps
+ *   SMMU stream 0x820, DSC_0, INTF_1 to DSI0 + the 7nm PHY. The panel is the "m17 38 0c 0a"
+ *   1080x2400 AMOLED in video mode with DSC 1.1 (kernel/patches/0008): vddio = PM6125 L13 1.86 V,
+ *   avdd = 3.0 V switched by GPIO24, reset on PMR735A GPIO2 (active low), TE on GPIO23. DSI: vdda
+ *   1.2 V = PM6125 L4, refgen. One msm DRM device drives display and GPU. ABL's splash is described
+ *   as a simple-framebuffer, so simpledrm shows the console until msm's KMS takes over.
+ *
+ * clk_ignore_unused and pd_ignore_unused (bootargs) keep GCC/RPM from switching off what ABL left
+ * running.
+ */
+/dts-v1/;
+
+#define PMK8350_SID 6
+
+#include <dt-bindings/clock/qcom,sm6375-dispcc.h>
+#include <dt-bindings/clock/qcom,sm6375-gpucc.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/thermal/thermal.h>
+#include "sm6375.dtsi"
+#include "pm6125.dtsi"
+#include "pmk8350.dtsi"
+#include "pmr735a.dtsi"
+
+/* the PM6125 PON is the one in use (downstream disables PMK8350's), and the labels collide */
+/delete-node/ &pmk8350_pon;
+
+/ {
+	model = "Xiaomi Redmi Note 12 5G (sunstone)";
+	compatible = "xiaomi,sunstone", "qcom,sm4375", "qcom,sm6375";
+	chassis-type = "handset";
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		/*
+		 * consoleblank: the text console turns the panel off after 120 s (the phone is a server,
+		 * screen off). watchdog.open_timeout: see the watchdog node.
+		 */
+		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused consoleblank=120 watchdog.open_timeout=120";
+
+		framebuffer@85200000 {
+			compatible = "simple-framebuffer";
+			reg = <0x0 0x85200000 0x0 0xc00000>;
+			width = <1080>;
+			height = <2400>;
+			stride = <(1080 * 4)>;
+			format = "a8r8g8b8";
+			memory-region = <&splash_mem>;
+		};
+	};
+
+	memory@80000000 {
+		reg = <0x0 0x80000000 0x0 0x3bb00000>,
+		      <0x0 0xc0000000 0x0 0xc0000000>,
+		      <0x1 0x80000000 0x1 0x00000000>;
+	};
+
+	reserved-memory {
+		splash_mem: splash@85200000 {
+			reg = <0x0 0x85200000 0x0 0xc00000>;
+			no-map;
+		};
+
+		/* the downstream kernel's layout, so either kernel reads the other's records */
+		ramoops@d0000000 {
+			compatible = "ramoops";
+			reg = <0x0 0xd0000000 0x0 0x200000>;
+			console-size = <0x100000>;
+			pmsg-size = <0x100000>;
+		};
+	};
+
+	/* the touch controller's analog supply, switched by GPIO49; on already when ABL hands over */
+	touch_avdd: touch-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_avdd";
+		gpio = <&tlmm 49 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		pinctrl-0 = <&ts_avdd_default>;
+		pinctrl-names = "default";
+	};
+
+	panel_avdd: panel-avdd-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_avdd";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		gpio = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <233>;
+		/* on when ABL hands over: the splash is showing */
+		regulator-boot-on;
+		pinctrl-0 = <&panel_avdd_default>;
+		pinctrl-names = "default";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+		pinctrl-0 = <&vol_up_n>;
+		pinctrl-names = "default";
+
+		key-volume-up {
+			label = "Volume Up";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&pmr735a_gpios 1 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+			linux,can-disable;
+			wakeup-source;
+		};
+	};
+
+	soc@0 {
+		qfprom: efuse@1b40000 {
+			compatible = "qcom,sm6375-qfprom", "qcom,qfprom";
+			reg = <0x0 0x01b40000 0x0 0x7000>;
+			read-only;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			gpu_speed_bin: gpu-speed-bin@6015 {
+				reg = <0x6015 0x1>;
+				bits = <0 8>;
+			};
+		};
+
+		ufs_mem_hc: ufshc@4804000 {
+			compatible = "qcom,sm6375-ufshc", "qcom,ufshc", "jedec,ufs-2.0";
+			reg = <0x0 0x04804000 0x0 0x3000>;
+			reg-names = "std";
+			interrupts = <GIC_SPI 356 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&ufs_mem_phy>;
+			phy-names = "ufsphy";
+			lanes-per-direction = <1>;
+			#reset-cells = <1>;
+			resets = <&gcc GCC_UFS_PHY_BCR>;
+			reset-names = "rst";
+			reset-gpios = <&tlmm 156 GPIO_ACTIVE_LOW>;
+
+			power-domains = <&gcc UFS_PHY_GDSC>;
+			iommus = <&apps_smmu 0x60 0x0>;
+
+			clocks = <&gcc GCC_UFS_PHY_AXI_CLK>,
+				 <&gcc GCC_SYS_NOC_UFS_PHY_AXI_CLK>,
+				 <&gcc GCC_UFS_PHY_AHB_CLK>,
+				 <&gcc GCC_UFS_PHY_UNIPRO_CORE_CLK>,
+				 <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&gcc GCC_UFS_PHY_TX_SYMBOL_0_CLK>,
+				 <&gcc GCC_UFS_PHY_RX_SYMBOL_0_CLK>;
+			clock-names = "core_clk",
+				      "bus_aggr_clk",
+				      "iface_clk",
+				      "core_clk_unipro",
+				      "ref_clk",
+				      "tx_lane0_sync_clk",
+				      "rx_lane0_sync_clk";
+			freq-table-hz = <50000000 200000000>,
+					<0 0>,
+					<0 0>,
+					<37500000 150000000>,
+					<0 0>,
+					<0 0>,
+					<0 0>;
+
+			/* vcc PM6125 L24 (2.95 V), vccq2 PM6125 L11 (1.8 V), vdd-hba = the UFS_PHY GDSC */
+			vcc-supply = <&pm6125_l24>;
+			vcc-max-microamp = <800000>;
+			vccq2-supply = <&pm6125_l11>;
+			vccq2-max-microamp = <800000>;
+		};
+
+		ufs_mem_phy: phy@4807000 {
+			compatible = "qcom,sm6375-qmp-ufs-phy";
+			reg = <0x0 0x04807000 0x0 0x1000>;
+
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&gcc GCC_UFS_PHY_PHY_AUX_CLK>,
+				 <&gcc GCC_UFS_MEM_CLKREF_CLK>;
+			clock-names = "ref",
+				      "ref_aux",
+				      "qref";
+
+			power-domains = <&gcc UFS_PHY_GDSC>;
+
+			resets = <&ufs_mem_hc 0>;
+			reset-names = "ufsphy";
+
+			vdda-phy-supply = <&pm6125_l7>;
+			vdda-pll-supply = <&pm6125_l4>;
+
+			#phy-cells = <0>;
+		};
+
+		gpu: gpu@5900000 {
+			compatible = "qcom,adreno-619.1", "qcom,adreno";
+			reg = <0x0 0x05900000 0x0 0x40000>,
+			      <0x0 0x0599e000 0x0 0x1000>,
+			      <0x0 0x05961000 0x0 0x800>;
+			reg-names = "kgsl_3d0_reg_memory",
+				    "cx_mem",
+				    "cx_dbgc";
+
+			/* no (real) GMU: the GPU driver handles the clocks itself */
+			clocks = <&gpucc GPU_CC_GX_GFX3D_CLK>,
+				 <&gpucc GPU_CC_AHB_CLK>,
+				 <&gcc GCC_BIMC_GPU_AXI_CLK>,
+				 <&gcc GCC_GPU_MEMNOC_GFX_CLK>,
+				 <&gpucc GPU_CC_CX_GMU_CLK>,
+				 <&gpucc GPU_CC_CXO_CLK>;
+			clock-names = "core",
+				      "iface",
+				      "mem_iface",
+				      "alt_mem_iface",
+				      "gmu",
+				      "xo";
+
+			interrupts = <GIC_SPI 177 IRQ_TYPE_LEVEL_HIGH>;
+
+			iommus = <&adreno_smmu 0>;
+			operating-points-v2 = <&gpu_opp_table>;
+			power-domains = <&rpmpd SM6375_VDDGX>;
+			qcom,gmu = <&gmu_wrapper>;
+
+			nvmem-cells = <&gpu_speed_bin>;
+			nvmem-cell-names = "speed_bin";
+			#cooling-cells = <2>;
+
+			gpu_zap_shader: zap-shader {
+				memory-region = <&pil_gpu_micro_code_mem>;
+				firmware-name = "qcom/sm4375/xiaomi/sunstone/a615_zap.mdt";
+			};
+
+			/*
+			 * opp-supported-hw: BIT(n) for the catalog's speed bins {0: 0, 190: 1, 177: 2, 148: 3}
+			 * (148 from kernel/patches/0007; sunstone is a bin-148 part, downstream max 700 MHz,
+			 * which gpucc cannot make: 650 MHz is its top here)
+			 */
+			gpu_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-900000000 {
+					opp-hz = /bits/ 64 <900000000>;
+					required-opps = <&rpmpd_opp_turbo_no_cpr>;
+					opp-supported-hw = <0x3>;
+				};
+
+				opp-840000000 {
+					opp-hz = /bits/ 64 <840000000>;
+					required-opps = <&rpmpd_opp_turbo>;
+					opp-supported-hw = <0x7>;
+				};
+
+				opp-770000000 {
+					opp-hz = /bits/ 64 <770000000>;
+					required-opps = <&rpmpd_opp_nom_plus>;
+					opp-supported-hw = <0x7>;
+				};
+
+				opp-650000000 {
+					opp-hz = /bits/ 64 <650000000>;
+					required-opps = <&rpmpd_opp_nom>;
+					opp-supported-hw = <0xf>;
+				};
+
+				opp-490000000 {
+					opp-hz = /bits/ 64 <490000000>;
+					required-opps = <&rpmpd_opp_svs_plus>;
+					opp-supported-hw = <0xf>;
+				};
+
+				opp-390000000 {
+					opp-hz = /bits/ 64 <390000000>;
+					required-opps = <&rpmpd_opp_svs>;
+					opp-supported-hw = <0xf>;
+				};
+
+				opp-266000000 {
+					opp-hz = /bits/ 64 <266000000>;
+					required-opps = <&rpmpd_opp_low_svs>;
+					opp-supported-hw = <0xf>;
+				};
+			};
+		};
+
+		gmu_wrapper: gmu@596a000 {
+			compatible = "qcom,adreno-gmu-wrapper";
+			reg = <0x0 0x0596a000 0x0 0x30000>;
+			reg-names = "gmu";
+			power-domains = <&gpucc GPU_CX_GDSC>,
+					<&gpucc GPU_GX_GDSC>;
+			power-domain-names = "cx", "gx";
+		};
+
+		gpucc: clock-controller@5990000 {
+			compatible = "qcom,sm6375-gpucc";
+			reg = <0x0 0x05990000 0x0 0x9000>;
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&gcc GCC_GPU_GPLL0_CLK_SRC>,
+				 <&gcc GCC_GPU_GPLL0_DIV_CLK_SRC>,
+				 <&gcc GCC_GPU_SNOC_DVM_GFX_CLK>;
+			power-domains = <&rpmpd SM6375_VDDGX>;
+			required-opps = <&rpmpd_opp_low_svs>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
+		};
+
+		/*
+		 * APSS watchdog, as the downstream qcom,msm-watchdog (0xf410000, bark interrupt SPI 0). Same
+		 * register layout as the KPSS watchdog; the sm6115 node is the model, including the edge
+		 * trigger (level-high, as downstream, storms for the second between bark and bite).
+		 * A bite resets into Linux again (boot-93: 67 s); systemd pets it (RuntimeWatchdogSec).
+		 * The shim starts it before Linux; the watchdog core pets it until systemd opens it, for at
+		 * most watchdog.open_timeout (bootargs), so a hang during kernel init is reset as well.
+		 */
+		watchdog@f410000 {
+			compatible = "qcom,apss-wdt-sm6375", "qcom,kpss-wdt";
+			reg = <0x0 0x0f410000 0x0 0x1000>;
+			clocks = <&sleep_clk>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		dispcc: clock-controller@5f00000 {
+			compatible = "qcom,sm6375-dispcc";
+			reg = <0x0 0x05f00000 0x0 0x20000>;
+			clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>,
+				 <&gcc GCC_DISP_GPLL0_CLK_SRC>,
+				 <&mdss_dsi0_phy 0>,
+				 <&mdss_dsi0_phy 1>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
+		};
+
+		mdss: display-subsystem@5e00000 {
+			compatible = "qcom,sm6375-mdss";
+			reg = <0x0 0x05e00000 0x0 0x1000>;
+			reg-names = "mdss";
+
+			power-domains = <&dispcc MDSS_GDSC>;
+			/*
+			 * msm resets MDSS at probe: this stops ABL's splash scanout. Without it the DPU still
+			 * fetches the splash (0x85200000) when msm switches the display stream to its own
+			 * SMMU domain; if MDSS has not been power-collapsed in between (the first modeset
+			 * inside the panel's probe holds its parents active) that ends in SMMU faults, DSI
+			 * FIFO underflow and a hard hang (LOG.md boot-34-69).
+			 */
+			resets = <&dispcc DISP_CC_MDSS_CORE_BCR>;
+
+			clocks = <&gcc GCC_DISP_AHB_CLK>,
+				 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+				 <&dispcc DISP_CC_MDSS_MDP_CLK>;
+			clock-names = "iface", "ahb", "core";
+
+			interrupts = <GIC_SPI 186 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			iommus = <&apps_smmu 0x820 0x2>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			mdp: display-controller@5e01000 {
+				compatible = "qcom,sm6375-dpu";
+				reg = <0x0 0x05e01000 0x0 0x8e030>,
+				      <0x0 0x05eb0000 0x0 0x2008>;
+				reg-names = "mdp", "vbif";
+
+				clocks = <&gcc GCC_DISP_HF_AXI_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&dispcc DISP_CC_MDSS_ROT_CLK>,
+					 <&dispcc DISP_CC_MDSS_MDP_LUT_CLK>,
+					 <&dispcc DISP_CC_MDSS_MDP_CLK>,
+					 <&dispcc DISP_CC_MDSS_VSYNC_CLK>,
+					 <&gcc GCC_DISP_THROTTLE_CORE_CLK>;
+				clock-names = "bus", "iface", "rot", "lut", "core", "vsync", "throttle";
+
+				assigned-clocks = <&dispcc DISP_CC_MDSS_VSYNC_CLK>;
+				assigned-clock-rates = <19200000>;
+
+				operating-points-v2 = <&mdp_opp_table>;
+				power-domains = <&rpmpd SM6375_VDDCX>;
+
+				interrupt-parent = <&mdss>;
+				interrupts = <0>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dpu_intf1_out: endpoint {
+							remote-endpoint = <&dsi0_in>;
+						};
+					};
+				};
+
+				/* dispcc MDP rates; 1080x2400@120 needs ~400 MHz */
+				mdp_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					opp-19200000 {
+						opp-hz = /bits/ 64 <19200000>;
+						required-opps = <&rpmpd_opp_min_svs>;
+					};
+
+					opp-200000000 {
+						opp-hz = /bits/ 64 <200000000>;
+						required-opps = <&rpmpd_opp_low_svs>;
+					};
+
+					opp-300000000 {
+						opp-hz = /bits/ 64 <300000000>;
+						required-opps = <&rpmpd_opp_svs>;
+					};
+
+					opp-373500000 {
+						opp-hz = /bits/ 64 <373500000>;
+						required-opps = <&rpmpd_opp_svs_plus>;
+					};
+
+					opp-470000000 {
+						opp-hz = /bits/ 64 <470000000>;
+						required-opps = <&rpmpd_opp_nom>;
+					};
+
+					opp-560000000 {
+						opp-hz = /bits/ 64 <560000000>;
+						required-opps = <&rpmpd_opp_turbo>;
+					};
+				};
+			};
+
+			mdss_dsi0: dsi@5e94000 {
+				compatible = "qcom,sm6375-dsi-ctrl", "qcom,mdss-dsi-ctrl";
+				reg = <0x0 0x05e94000 0x0 0x400>;
+				reg-names = "dsi_ctrl";
+
+				interrupt-parent = <&mdss>;
+				interrupts = <4>;
+
+				clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK>,
+					 <&dispcc DISP_CC_MDSS_BYTE0_INTF_CLK>,
+					 <&dispcc DISP_CC_MDSS_PCLK0_CLK>,
+					 <&dispcc DISP_CC_MDSS_ESC0_CLK>,
+					 <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&gcc GCC_DISP_HF_AXI_CLK>;
+				clock-names = "byte", "byte_intf", "pixel", "core", "iface", "bus";
+
+				assigned-clocks = <&dispcc DISP_CC_MDSS_BYTE0_CLK_SRC>,
+						  <&dispcc DISP_CC_MDSS_PCLK0_CLK_SRC>;
+				assigned-clock-parents = <&mdss_dsi0_phy 0>, <&mdss_dsi0_phy 1>;
+
+				operating-points-v2 = <&dsi_opp_table>;
+				power-domains = <&rpmpd SM6375_VDDMX>;
+
+				vdda-supply = <&pm6125_l4>;
+				refgen-supply = <&refgen>;
+
+				phys = <&mdss_dsi0_phy>;
+				phy-names = "dsi";
+
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				panel@0 {
+					compatible = "xiaomi,m17-38-0c-0a";
+					reg = <0>;
+
+					vddio-supply = <&pm6125_l13>;
+					avdd-supply = <&panel_avdd>;
+					reset-gpios = <&pmr735a_gpios 2 GPIO_ACTIVE_LOW>;
+
+					pinctrl-0 = <&panel_reset_default &mdp_vsync_default>;
+					pinctrl-names = "default";
+
+					port {
+						panel_in: endpoint {
+							remote-endpoint = <&dsi0_out>;
+						};
+					};
+				};
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						dsi0_in: endpoint {
+							remote-endpoint = <&dpu_intf1_out>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+						dsi0_out: endpoint {
+							remote-endpoint = <&panel_in>;
+							data-lanes = <0 1 2 3>;
+						};
+					};
+				};
+
+				dsi_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					opp-187500000 {
+						opp-hz = /bits/ 64 <187500000>;
+						required-opps = <&rpmpd_opp_low_svs>;
+					};
+
+					opp-300000000 {
+						opp-hz = /bits/ 64 <300000000>;
+						required-opps = <&rpmpd_opp_svs>;
+					};
+
+					opp-358000000 {
+						opp-hz = /bits/ 64 <358000000>;
+						required-opps = <&rpmpd_opp_svs_plus>;
+					};
+				};
+			};
+
+			mdss_dsi0_phy: phy@5e94400 {
+				compatible = "qcom,sm6375-dsi-phy-7nm";
+				reg = <0x0 0x05e94400 0x0 0x200>,
+				      <0x0 0x05e94600 0x0 0x280>,
+				      <0x0 0x05e94900 0x0 0x264>;
+				reg-names = "dsi_phy", "dsi_phy_lane", "dsi_pll";
+
+				#clock-cells = <1>;
+				#phy-cells = <0>;
+
+				clocks = <&dispcc DISP_CC_MDSS_AHB_CLK>,
+					 <&rpmcc RPM_SMD_XO_CLK_SRC>;
+				clock-names = "iface", "ref";
+			};
+		};
+	};
+};
+
+/* blair's firmware carve-outs sit higher than holi's from adsp on (live DT) */
+&pil_adsp_mem { reg = <0x0 0x86700000 0x0 0x2800000>; };
+&pil_cdsp_mem { reg = <0x0 0x88f00000 0x0 0x1e00000>; };
+&pil_video_mem { reg = <0x0 0x8ad00000 0x0 0x500000>; };
+&pil_ipa_fw_mem { reg = <0x0 0x8b200000 0x0 0x10000>; };
+&pil_ipa_gsi_mem { reg = <0x0 0x8b210000 0x0 0xa000>; };
+&pil_gpu_micro_code_mem { reg = <0x0 0x8b21a000 0x0 0x2000>; };
+
+/*
+ * sm6375.dtsi leaves "qcom,adreno-smmu" out of the GPU SMMU: without it arm-smmu-qcom does not use
+ * its Adreno implementation and msm gets no per-process page tables ("No per-process page tables").
+ */
+&adreno_smmu {
+	compatible = "qcom,sm6375-smmu-v2", "qcom,adreno-smmu", "qcom,smmu-v2";
+};
+
+/* blair's gold cluster tops out at 2016 MHz (EPSS LUT), a step holi's table does not have */
+&cpu6_opp_table {
+	opp-2016000000 {
+		opp-hz = /bits/ 64 <2016000000>;
+		opp-peak-kBps = <(1497600 * 32)>;
+	};
+};
+
+&gpi_dma1 {
+	status = "okay";
+};
+
+&i2c7 {
+	clock-frequency = <400000>;
+	pinctrl-0 = <&qup_i2c7_default>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	/*
+	 * Taken over without a reset. Linux programs the charging settings instead of reading back
+	 * what the bootloader left (that capped ICHG at 512 mA), below the downstream 3 A: 2 A (about
+	 * 1.86 A on the SC89890H, whose ICHG step is smaller), precharge/termination as read back on
+	 * boot-13. Input current stays with the chip's own BC1.2 detection; JEITA via the TS pin in
+	 * hardware. CV 4.1 V (4.096 V in 16 mV steps, about 80 %) rather than the downstream 4.45 V: the
+	 * phone lives on its charger as a server and the battery is its UPS; 24/7 at 4.45 V ages it
+	 * fast. For a full charge:
+	 * echo 4450000 > /sys/class/power_supply/bq25890-charger-0/constant_charge_voltage
+	 */
+	charger: charger@6a {
+		compatible = "ti,bq25890";
+		reg = <0x6a>;
+		interrupts-extended = <&tlmm 48 IRQ_TYPE_EDGE_FALLING>;
+		pinctrl-0 = <&chg_int_default &chg_en_default>;
+		pinctrl-names = "default";
+
+		linux,skip-reset;
+		ti,battery-regulation-voltage = <4100000>;
+		ti,charge-current = <2000000>;
+		ti,termination-current = <256000>;
+		ti,precharge-current = <192000>;
+		ti,minimum-sys-voltage = <3600000>;
+		ti,boost-voltage = <5000000>;
+		ti,boost-max-current = <1650000>;
+		ti,thermal-regulation-threshold = <120>;
+	};
+
+	fuel-gauge@71 {
+		compatible = "siliconmitus,sm5602";
+		reg = <0x71>;
+		power-supplies = <&charger>;
+		/* battery NTC reading for -20..80 C (downstream battery0,thermal_table) */
+		siliconmitus,thermal-table = <
+			0x3b3a 0x3516 0x2f05 0x28f4 0x2323 0x1d80 0x1804 0x12e1 0xda7 0x8b3
+			0x3d6 0xf6f2 0xf273 0xee03 0xe9d0 0xe5c7 0xe1e2 0xde2c 0xda98 0xd727
+			0xd3d8 0xd0b2 0xcdac 0xcac8 0xc806 0xc55c 0xc2d0 0xc069 0xbe17 0xbbe1
+			0xb9c6 0xb7c0 0xb5d3 0xb400 0xb242 0xb092 0xaefd 0xad7c 0xac06 0xaaa6
+			0xa953 0xa814 0xa6de 0xa5be 0xa4a5 0xa39c 0xa2a1 0xa1b1 0xa0cb 0x9ff3
+			0x9f23 0x9e59 0x9d9a 0x9ce7 0x9c3b 0x9b95 0x9af7 0x9a62 0x99d2 0x994b
+			0x98cb 0x984e 0x97d6 0x9765 0x96fa 0x9693 0x9631 0x95d3 0x9579 0x9523
+			0x94cf 0x9481 0x9435 0x93ec 0x93a6 0x9364 0x9325 0x92ea 0x92b1 0x927b
+			0x9245 0x9212 0x91e1 0x91b2 0x9185 0x915a 0x9132 0x910b 0x90e6 0x90c2
+			0x90a0 0x907e 0x905e 0x9040 0x9022 0x9006 0x8fea 0x8fd0 0x8fb7 0x8fa0
+			0x8f8a>;
+	};
+};
+
+&i2c8 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	touchscreen@38 {
+		compatible = "focaltech,ft5452";
+		reg = <0x38>;
+		interrupts-extended = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 21 GPIO_ACTIVE_LOW>;
+		vcc-supply = <&touch_avdd>;
+		/* the IC reports 1.25x panel pixels (boot-11 target taps: 0.805 px per unit, both axes) */
+		touchscreen-size-x = <1350>;
+		touchscreen-size-y = <3000>;
+		pinctrl-0 = <&ts_int_default &ts_reset_default>;
+		pinctrl-names = "default";
+	};
+};
+
+/* not used on this board: the PM6125 RTC is disabled in hardware (probe gets -EPERM) */
+&pm6125_rtc {
+	status = "disabled";
+};
+
+/*
+ * A normal `reboot` writes PON reason 0 and comes back into Linux; `reboot bootloader`
+ * (`systemctl reboot --reboot-argument=bootloader`, mode-bootloader in pm6125.dtsi) goes to fastboot.
+ * A panic (emergency restart, no reboot notifiers) leaves the reason as it was: since 2026-10-23 the
+ * shim no longer sets "bootloader" before Linux (unless built with PON_FASTBOOT=1), so it reboots
+ * into Linux too.
+ */
+&pm6125_pon {
+	mode-normal = <0x0>;
+};
+
+&pmk8350_rtc {
+	status = "okay";
+};
+
+/* the PMK8350 ADC has no channels described yet */
+&pmk8350_vadc {
+	status = "disabled";
+};
+
+&pmr735a_gpios {
+	vol_up_n: vol-up-n-state {
+		pins = "gpio1";
+		function = "normal";
+		power-source = <1>;
+		bias-pull-up;
+		input-enable;
+	};
+
+	panel_reset_default: panel-reset-default-state {
+		pins = "gpio2";
+		function = "normal";
+		power-source = <1>;
+		bias-disable;
+		output-high;
+	};
+};
+
+&pon_pwrkey {
+	status = "okay";
+};
+
+&pon_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&qupv3_id_1 {
+	status = "okay";
+};
+
+&remoteproc_mss {
+	firmware-name = "qcom/sm4375/xiaomi/sunstone/modem.mdt";
+	status = "okay";
+};
+
+&rpm_requests {
+	regulators-0 {
+		compatible = "qcom,rpm-pm6125-regulators";
+
+		/* WLAN 1.3 V RFA */
+		pm6125_l2: l2 {
+			regulator-min-microvolt = <1304000>;
+			regulator-max-microvolt = <1304000>;
+		};
+
+		/* UFS PHY PLL (downstream 1.1-1.3 V), DSI vdda */
+		pm6125_l4: l4 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-allow-set-load;
+		};
+
+		/* USB HS PHY core (downstream qcom,vdd-voltage-level 0.88 V), UFS PHY */
+		pm6125_l7: l7 {
+			regulator-min-microvolt = <880000>;
+			regulator-max-microvolt = <880000>;
+			regulator-allow-set-load;
+		};
+
+		/* USB HS PHY 1.8 V */
+		pm6125_l10: l10 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		/* UFS vccq2 */
+		pm6125_l11: l11 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-allow-set-load;
+		};
+
+		/* panel vddio (downstream supply entry 1.86 V) */
+		pm6125_l13: l13 {
+			regulator-min-microvolt = <1856000>;
+			regulator-max-microvolt = <1856000>;
+			regulator-allow-set-load;
+		};
+
+		/* WLAN 1.8 V XO */
+		pm6125_l16: l16 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		/* WLAN 3.3 V ch1 */
+		pm6125_l21: l21 {
+			regulator-min-microvolt = <3304000>;
+			regulator-max-microvolt = <3304000>;
+		};
+
+		/* WLAN 3.3 V ch0 */
+		pm6125_l23: l23 {
+			regulator-min-microvolt = <3304000>;
+			regulator-max-microvolt = <3304000>;
+		};
+
+		/* UFS vcc (downstream vcc-voltage-level 2.95-2.96 V) */
+		pm6125_l24: l24 {
+			regulator-min-microvolt = <2952000>;
+			regulator-max-microvolt = <2952000>;
+			regulator-allow-set-load;
+		};
+	};
+
+	regulators-1 {
+		compatible = "qcom,rpm-pmr735a-regulators";
+
+		/* WLAN cx-mx */
+		pmr735a_l2: l2 {
+			regulator-min-microvolt = <640000>;
+			regulator-max-microvolt = <640000>;
+		};
+
+		/* USB HS PHY 3.1 V */
+		pmr735a_l7: l7 {
+			regulator-min-microvolt = <3104000>;
+			regulator-max-microvolt = <3104000>;
+		};
+	};
+};
+
+&tlmm {
+	/* fingerprint SPI (qup10), owned by TZ: reading these aborts (boot-2) */
+	gpio-reserved-ranges = <13 4>;
+
+	ts_reset_default: ts-reset-default-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ts_int_default: ts-int-default-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	mdp_vsync_default: mdp-vsync-default-state {
+		pins = "gpio23";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	panel_avdd_default: panel-avdd-default-state {
+		pins = "gpio24";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
+	};
+
+	qup_i2c7_default: qup-i2c7-default-state {
+		pins = "gpio27", "gpio28";
+		function = "qup11_f1";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	chg_int_default: chg-int-default-state {
+		pins = "gpio48";
+		function = "gpio";
+		bias-pull-up;
+		input-enable;
+	};
+
+	ts_avdd_default: ts-avdd-default-state {
+		pins = "gpio49";
+		function = "gpio";
+		drive-strength = <8>;
+		output-high;
+	};
+
+	chg_en_default: chg-en-default-state {
+		pins = "gpio53";
+		function = "gpio";
+		bias-disable;
+		output-low;
+	};
+};
+
+&usb_1 {
+	status = "okay";
+};
+
+&usb_1_dwc3 {
+	dr_mode = "peripheral";
+};
+
+&usb_1_hsphy {
+	vdda-pll-supply = <&pm6125_l7>;
+	vdda18-supply = <&pm6125_l10>;
+	vdda33-supply = <&pmr735a_l7>;
+	status = "okay";
+};
+
+&wifi {
+	vdd-0.8-cx-mx-supply = <&pmr735a_l2>;
+	vdd-1.8-xo-supply = <&pm6125_l16>;
+	vdd-1.3-rfa-supply = <&pm6125_l2>;
+	vdd-3.3-ch0-supply = <&pm6125_l23>;
+	vdd-3.3-ch1-supply = <&pm6125_l21>;
+	/*
+	 * The firmware reports 00:00:.. and ath10k would pick a random address every boot (new
+	 * DHCP lease each time). A fixed locally administered address instead of the phone's own
+	 * MAC from persist, which stays out of this repository.
+	 */
+	local-mac-address = [02 53 4e 00 00 10];
+	/*
+	 * The board ID in OTP is unset (0xff), which matches only linux-firmware's generic entry. With
+	 * the variant, ath10k first looks for "...,qmi-chip-id=150,variant=xiaomi_sunstone" in
+	 * board-2.bin: an entry made from the phone's own bdwlan file (sunstone-fw-install, into
+	 * /lib/firmware/updates), the generic entry as the fallback.
+	 */
+	qcom,calibration-variant = "xiaomi_sunstone";
+	status = "okay";
+};
+
+/* the board XO frequency, left to the board by sm6375.dtsi: without it every clock rate read 0 */
+&xo_board_clk {
+	clock-frequency = <19200000>;
+};
+
+/*
+ * Cooling maps: sm6375.dtsi has the tsens zones and their trips but binds no cooling device, so the
+ * 90/95 C passive trips did nothing and only the 110 C critical trip (shutdown) acted. From the
+ * first passive trip on, step_wise lowers the A55 policy (cpu0), the A78 policy (cpu6) or the GPU,
+ * re-evaluating every 250 ms while above it (the zones have no polling at all otherwise, so a
+ * trip crossing gave a single step), as sm6115 and sm8250 do.
+ * cpu-unk0/1 (tsens 11, 12) stay unbound: which cores they watch is unknown.
+ */
+
+&{/thermal-zones/cpu0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu0_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu1_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu2-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu2_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu3-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu3_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu4-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu4_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu5-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu5_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cluster0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cluster0_alert0>;
+			cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu6-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu6_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu7-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu7_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cluster1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cluster1_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/gpuss0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&gpuss0_alert0>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/gpuss1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&gpuss1_alert0>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};

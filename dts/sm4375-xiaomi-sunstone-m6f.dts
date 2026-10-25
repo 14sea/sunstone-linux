@@ -1,6 +1,0 @@
-// SPDX-License-Identifier: BSD-3-Clause
-/* display bisect: m6d with MDSS/DPU on, DSI controller and PHY (and so the panel) off */
-#include "sm4375-xiaomi-sunstone-m6d.dts"
-
-&mdss_dsi0 { status = "disabled"; };
-&mdss_dsi0_phy { status = "disabled"; };

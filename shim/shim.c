@@ -660,6 +660,7 @@ static void cpufreq_domain(uintptr_t b, const char *name, unsigned ncores)
  * at most watchdog.open_timeout= seconds: a hang before userspace takes over is reset too.
  * Bark and bite at the same count: the bark has no handler before the kernel's.
  */
+#if SHIM_WDT
 #define APSS_WDT	0x0f410000UL
 
 static void wdt_start(void)
@@ -671,6 +672,7 @@ static void wdt_start(void)
 	mmio_wr(APSS_WDT + 0x8, 1);
 	con_hex2("WDT", "en=", mmio_rd(APSS_WDT + 0x8), "bite=", mmio_rd(APSS_WDT + 0x14));
 }
+#endif
 
 static void cpufreq_max(void)
 {

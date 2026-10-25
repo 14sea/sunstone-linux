@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * The board with the initramfs kept in rescue mode (sunstone.rescue): USB network, dropbear on
+ * 192.168.7.2, userdata not mounted, for whole-partition work on userdata (backup, restore, a new
+ * root). No watchdog: nothing in the rescue system pets it (mkboot.sh leaves the shim's off).
+ *   tools/mkboot.sh rescue
+ */
+#include "sm4375-xiaomi-sunstone.dts"
+
+/ {
+	chosen {
+		bootargs = "console=tty0 ignore_loglevel printk.devkmsg=on panic=20 reboot=warm rdinit=/init clk_ignore_unused pd_ignore_unused sunstone.rescue";
+	};
+};

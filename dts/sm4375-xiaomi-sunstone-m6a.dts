@@ -1,7 +1,0 @@
-// SPDX-License-Identifier: BSD-3-Clause
-/* M6 bisect (boot-21 died before pstore came up): M6 with gpucc, the GMU wrapper and the GPU off */
-#include "sm4375-xiaomi-sunstone-m6.dts"
-
-&gpucc { status = "disabled"; };
-&gmu_wrapper { status = "disabled"; };
-&gpu { status = "disabled"; };

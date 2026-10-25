@@ -1,11 +1,12 @@
 #!/bin/bash
-# Pack out/Image-STAGE + dts/*-STAGE.dts into a boot_a image: DTB -> SWEETLNX payload -> shim.
-#   tools/mkboot.sh m1      -> out/boot-m1.img
-#   KSTAGE=m3 tools/mkboot.sh m3rescue   (another stage's kernel with this stage's DTB)
+# Pack out/Image-KSTAGE + dts/*-STAGE.dts into a boot_a image: DTB -> SWEETLNX payload -> shim.
+#   tools/mkboot.sh sunstone   -> out/boot-sunstone.img (dts/sm4375-xiaomi-sunstone.dts)
+#   tools/mkboot.sh rescue     -> out/boot-rescue.img (the same board in rescue mode)
+# KSTAGE is the kernel build (tools/build-kernel.sh KSTAGE), m6 unless given.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 STAGE=${1:?usage: mkboot.sh STAGE}
-KSTAGE=${KSTAGE:-$STAGE}
+KSTAGE=${KSTAGE:-m6}
 DTS=$(ls "$ROOT"/dts/*-"$STAGE".dts)
 SRC=$(ls -d "$ROOT"/src/linux-*/ | sort -V | tail -1)
 # the kernel's own dts preprocessing: dtsi and dt-bindings from the source tree
@@ -15,9 +16,10 @@ dtc -q -I dts -O dtb -o "$ROOT/out/$STAGE.dtb" "$ROOT/out/$STAGE.dts.pp"
 python3 "$ROOT/tools/mklinuxpayload.py" "$ROOT/out/Image-$KSTAGE" "$ROOT/out/$STAGE.dtb" "$ROOT/out/payload-$STAGE.bin"
 # the shim starts the hardware watchdog only for a kernel that has qcom-wdt to take it over
 # (WDT=0/1 overrides); a rescue kernel without it would be reset after 32 s
+# or for a rescue system (sunstone.rescue: no systemd to take it over)
 if [ -z "${WDT:-}" ]; then
 	WDT=0
-	grep -aq 'qcom,kpss-wdt' "$ROOT/out/Image-$KSTAGE" && WDT=1
+	grep -aq 'qcom,kpss-wdt' "$ROOT/out/Image-$KSTAGE" && ! grep -q 'sunstone\.rescue' "$ROOT/out/$STAGE.dts.pp" && WDT=1
 fi
 echo "shim watchdog: $([ "$WDT" = 1 ] && echo started before Linux || echo off)"
 WDT=$WDT "$ROOT/shim/build.sh" "$ROOT/out/payload-$STAGE.bin" >/dev/null
