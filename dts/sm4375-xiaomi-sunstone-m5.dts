@@ -32,6 +32,13 @@
 	 * MAC from persist, which stays out of this repository.
 	 */
 	local-mac-address = [02 53 4e 00 00 10];
+	/*
+	 * The board ID in OTP is unset (0xff), which matches only linux-firmware's generic entry. With
+	 * the variant, ath10k first looks for "...,qmi-chip-id=150,variant=xiaomi_sunstone" in
+	 * board-2.bin: an entry made from the phone's own bdwlan file (sunstone-fw-install, into
+	 * /lib/firmware/updates), the generic entry as the fallback.
+	 */
+	qcom,calibration-variant = "xiaomi_sunstone";
 	status = "okay";
 };
 

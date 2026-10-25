@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Add a board data entry to an ath10k board-2.bin.
 
-  mkboard2.py IN-board-2.bin BDF-FILE NAME OUT-board-2.bin
+  sunstone-mkboard2 IN-board-2.bin BDF-FILE NAME OUT-board-2.bin
 
 NAME is the ath10k board name to match, e.g.
   bus=snoc,qmi-board-id=ff,qmi-chip-id=150,variant=xiaomi_sunstone
 (the variant comes from the DT property qcom,calibration-variant on the wifi node). Existing entries
-are kept, an entry with the same name is replaced. Used with the phone's own bdwlan.* file, so no
-vendor data lives in the repository; the result goes to /lib/firmware/updates/ath10k/WCN3990/hw1.0/.
+are kept, an entry with the same name is replaced. Used with the phone's own bdwlan.* file (sunstone-fw-install), so
+no vendor data lives in the repository; the result goes to /lib/firmware/updates/ath10k/WCN3990/hw1.0/.
 
 Format (ath10k hw.h): "QCA-ATH10K-BOARD\\0", then 4-byte aligned IEs {u32 id, u32 len, data};
 IE 0 = board: sub-IEs {u32 id, u32 len, data}, 0 = name, 1 = data.

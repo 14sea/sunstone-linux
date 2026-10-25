@@ -82,3 +82,4 @@
 | 110 | 2026-10-25 | 實驗：`rdinit=/bin/sh`（PID 1 停在 shell，systemd 不啟動）、`open_timeout=20`；`5e860ad2c392850a` | 每次約 53 s 被看門狗復位，7 次後 ABL 停在 fastboot（374 s，tries 0、unbootable）；以前這種卡死會一直停住 | — |
 | 112 | 2026-10-25 | 實驗：`initcall_blacklist=qcom_watchdog_driver_init`（看門狗驅動不 probe，模擬 probe 之前的卡死）；`a3d50b4b4b6af0df` | 系統能起來（dmesg 無 qcom_wdt），每次約 55 s 被 shim 啟動的看門狗復位，386 s 後 fastboot | — |
 | 111、113 | 2026-10-25 | 刷回 boot-108 的鏡像（存為 `out/boot-saved113.img`） | 正常；open_timeout 120、successful 標上、省電 off、modem 一次成功 | — |
+| 114 | 2026-10-25 | wifi 節點加 `qcom,calibration-variant = "xiaomi_sunstone"`；board-2.bin 加 variant 條目（手機上用 `bdwlan.sunc` / `bdwlan.sung` 生成，modem 重啟即可切換）；`259a3366272f71a3` | 近距離對比（信號 -33 至 -35 dBm）：通用條目 21.7/30.8 Mbit/s，國行 sunc 22.6/28.3，國際 sung 22.6/27.9，都無重傳，txpower 都報 20 dBm；用 atime 確認 ath10k 讀了新的 board-2.bin。按用户的選擇保留 sung（`sunstone-fw-install` 生成） | — |

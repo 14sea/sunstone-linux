@@ -3,6 +3,9 @@
 # own partitions (nothing vendor-made is in the sunstone-linux repo):
 #  - modem_a (vfat, mounted read-only): modem.mdt/.bNN, modem_pr, the pd-mapper jsn files,
 #    wlanmdsp.mbn and the WLAN board files -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
+#  - the WLAN board data: ath10k's board-2.bin plus an entry for the DT's calibration variant
+#    (xiaomi_sunstone) made from bdwlan.$WLAN_BDF (default sung, Xiaomi's data for the markets
+#    outside China; sunc = bdwlan.bin is the Chinese one) -> /lib/firmware/updates/ath10k/...
 #  - modemst1/2, fsg, fsc (the modem's EFS) -> /var/lib/rmtfs/, served by rmtfs-dir.service,
 #    so the modem's EFS writes land in these copies and never on the partitions.
 # Re-running refreshes the firmware but keeps existing EFS copies.
@@ -18,6 +21,11 @@ cp "$MNT"/image/modem.mdt "$MNT"/image/modem.b* "$MNT"/image/*.jsn "$MNT"/image/
 	"$MNT"/image/bdwlan* "$FW"/
 cp -r "$MNT"/image/modem_pr "$FW"/
 echo "firmware: $(ls "$FW" | wc -l) files in $FW"
+
+BD=ath10k/WCN3990/hw1.0
+mkdir -p /lib/firmware/updates/$BD
+sunstone-mkboard2 /lib/firmware/$BD/board-2.bin "$FW/bdwlan.${WLAN_BDF:-sung}" \
+	bus=snoc,qmi-board-id=ff,qmi-chip-id=150,variant=xiaomi_sunstone /lib/firmware/updates/$BD/board-2.bin
 
 mkdir -p "$EFS"
 for p in modemst1 modemst2 fsg fsc; do

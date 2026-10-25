@@ -26,17 +26,14 @@
       （BC1.2 / 快充頭），按下游的 3 A 充電電流和輸入限流配置；確認 SC89890H 和 BQ25890 不同的字段步進（ICHG 等）。
 - [x] **ModemManager 探測 ACM 串口**：ACM 的 bInterfaceProtocol 設為 0 後（boot-16 起），測試主機上的 ModemManager
       不再探測（16:20 之後 ttyACM0 出現 3 次都沒有探測記錄）。
-- [ ] **WLAN 板級數據**：QMI 報 board_id 0xff，ath10k 匹配到 linux-firmware board-2.bin 的通用條目
-      `bus=snoc,qmi-board-id=ff`（Chromebook 系列的數據）。modem_a 裡有 84 個 `bdwlan.*`（都是 26328 字節，約 40 組不同
-      內容），沒有 board_id 0xff 對應的 `bdwlan.bin`；小米按自己的 SKU/地區選文件，規則要從小米開源的 sunstone 內核
-      （icnss 的 BDF 文件名）查。在弄清之前不要隨便挑一個（發射功率表可能不對）。不要為了看日誌去啟動 crDroid：
-      它可能格式化現在裝著 Arch 的 userdata。
-      小米 sunstone-u-oss 內核（drivers/soc/qcom/icnss2）只對 WCN6750 下發 BDF；WCN3988 是 modem 上的 WLAN 固件自己
-      經 TFTP 從 modem_a 讀。下一步：modem 重啟時 `strace -e openat -p <tqftpserv>` 看固件打開哪個 `bdwlan.*`，
-      再把那個文件做成 ath10k 的 board.bin（或 board-2.bin 的 variant 條目）。
-      結果：strace 下固件經 TFTP 只讀了 wlanmdsp.mbn 和 modem_pr 的配置，沒讀 bdwlan（ath10k 已經經 QMI 下發 BDF）。
-      modem 讀的硬件配置是 `mcfg_hw/.../LA/CN/` 和 `cn_hw.txt`：國行硬件，板級數據多半也按地區選。
-      `tools/mkboard2.py` 已備好（往 board-2.bin 加 `variant=xiaomi_sunstone` 條目，輸出到 /lib/firmware/updates）。
+- [x] **WLAN 板級數據**（2026-10-25，boot-114）：QMI 報 board_id 0xff，以前 ath10k 只匹配到 linux-firmware board-2.bin 的
+      通用條目 `bus=snoc,qmi-board-id=ff`（Chromebook 系列的數據）。modem_a 裡 84 個 `bdwlan.*` 中有按機型和地區命名的
+      `bdwlan.sunc/sung/suni`（sunstone 國行/國際/印度；`moong/mooni` 是 moonstone，和 sung/suni 相同）；默認的
+      `bdwlan.bin` 就是 sunc。sunc 和 sung 差 340 字節（校驗和、功率表和地區限制所在的區段），sung 和 suni 差 4 字節。
+      現在：DTS `qcom,calibration-variant = "xiaomi_sunstone"`，`sunstone-fw-install` 用 `bdwlan.sung`（用户選的，EU 使用；
+      `WLAN_BDF=sunc` 換國行版）經 `sunstone-mkboard2` 生成 `/lib/firmware/updates/.../board-2.bin`，通用條目作為後備。
+      近距離（-33 dBm）三者測不出差別：吞吐量 22/28–31 Mbit/s（受測試主機自己的 Wi-Fi 限制），無重傳；txpower 都報 20 dBm
+      （驅動按地區規則的上限）。遠距離和邊緣信號的表現沒測。
 - [x] **每次重啟都進 fastboot**（boot-20 驗證）：shim 總是把 PON 原因設為 fastboot（調試用）。reboot-mode 原本不寫 0
       （補丁 0006）。現在：DTS 給 PM6125 PON 加
       `mode-normal = <0>`，普通 `reboot` 寫 0 回到 Linux，`reboot bootloader` 進 fastboot，panic 仍進 fastboot。
