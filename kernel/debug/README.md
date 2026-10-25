@@ -37,7 +37,7 @@ the log reaches the test host's netconsole capture from about 0.6 s on:
 
 The MACs are the same as the initramfs gadget's, so the test host's interface name and capture do
 not change; `initramfs/init-m6` sees the kernel gadget and the command-line target and skips its own.
-`tools/run-exp.sh STAGE N` flashes one experiment image and stages the saved boot-58 image as the
+`tools/run-exp.sh STAGE N` flashes one experiment image and stages the known-good `out/boot-saved.img` as the
 restore for the next fastboot.
 
 ## Known limits of the debug patches

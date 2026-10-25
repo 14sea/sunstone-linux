@@ -1,5 +1,6 @@
 #!/bin/bash
-# One experiment boot: flash out/boot-STAGE.img as boot N, stage RESTORE (default saved58) as
+# One experiment boot: flash out/boot-STAGE.img as boot N, stage RESTORE (default saved: out/boot-saved.img,
+# the current known-good image, kept up to date by hand) as
 # boot N+1 for the next time the phone shows up in fastboot, then report whether the new kernel came
 # up (ssh within WAIT seconds) and, if it did, the lines matching GREP from the kernel log.
 #   tools/run-exp.sh STAGE N [RESTORE]      WAIT=60 GREP='...' tools/run-exp.sh e1a 59
@@ -9,7 +10,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$HERE/.." && pwd)
 . "$HERE/host.conf"
-STAGE=${1:?stage}; N=${2:?boot number}; RESTORE=${3:-saved58}
+STAGE=${1:?stage}; N=${2:?boot number}; RESTORE=${3:-saved}
 WAIT=${WAIT:-60}
 GREP=${GREP:-'sunstone|probe: |prepare|dsi_err|tx failed|Initialized msm|fb[0-9]:|Run /init|latch'}
 SSH="ssh -o BatchMode=yes $HOST"
