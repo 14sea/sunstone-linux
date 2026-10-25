@@ -94,9 +94,9 @@
 - [ ] 面板的亮度曲線（`bl-inverted-dbv`、最小亮度 4）、HBM/調光命令。
       用户反饋（boot-87）：亮度 80 和 300 看起來差不多（讀回值正確）。查三星 `bl-dcs-type-ss-ea` 和
       `bl-inverted-dbv` 在下游 dsi_panel.c 裏怎麼換算 51h 的兩個字節（字節序、是否取反），再看整個 4–2047 範圍的實際效果。
-- [ ] phoc 打印「No panel found for compatibles」：gmobile 的面板數據庫裡沒有 sunstone（圓角/挖孔），可以給 gmobile 提交。
+- [x] phoc 打印「No panel found for compatibles」：gmobile 的面板數據庫裡沒有 sunstone（圓角/挖孔），可以給 gmobile 提交。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）
 - [x] DTS：`qcom,mdss-dsc-slice-height` 的坑記在面板驅動裡；m6e/m6f/m6g 二分樹已刪（2026-10-25，見下面的 DTS 合併）。
-- [ ] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。
+- [x] Phosh 的 Wi-Fi 開關需要 NetworkManager（現在是 networkd + wpa_supplicant）。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）；Ubuntu 上可選 NetworkManager（`wifi-to-networkmanager.sh`）。
 
 ## 服務器（長期熄屏運行，2026-10-23 起的目標）
 
@@ -112,7 +112,8 @@
       未做：`cpu-unk0/1` 未綁定；電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；
       真實高負載下的溫度曲線放到長時間測試裏看。
 - [x] 長時間穩定性測試（boot-99，24 h 通過，見 LOG.md）：內存、溫度、Wi-Fi、內核錯誤、電池在 4.0–4.1 V 之間。
-- [ ] 最終配置上再跑 24 h（modem 修復、電源鍵、啟動成功標記、省電關、開機看門狗），期間故意觸發看門狗復位和 panic。
+- [x] 最終配置上再跑 24 h（modem 修復、電源鍵、啟動成功標記、省電關、開機看門狗），期間故意觸發看門狗復位和 panic。
+      （2026-10-25 併入下面「Ubuntu 上跑一次 24 h 穩定性測試」；故意的 panic、看門狗、活鎖測試已在 boot-108–113 做過。）
 - [x] 文本模式下電源鍵熄屏/亮屏（2026-10-25，用户按鍵確認：亮、滅、亮）：`sunstone-powerkey.service` 監聽 pm8941_pwrkey，
       控制台是文本模式時用 `TIOCLINUX` 切換（BLANKEDSCREEN 查狀態，BLANKSCREEN/UNBLANKSCREEN）；圖形模式（Phosh）時不管。
       `consoleblank` 的自動熄屏被改成強制熄屏，所以只有電源鍵能點亮，其他按鍵和內核消息不會。
@@ -207,18 +208,32 @@
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。
-- [ ] Ubuntu 上跑一次 24 h 穩定性測試（之前用户說先不開始）。
+- [ ] Ubuntu 上跑一次 24 h 穩定性測試（之前用户說先不開始）：在最終配置上（modem 修復、電源鍵、啟動成功標記、省電關、
+      開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時也要測一次重連）。
+
+## 還不能用的（2026-10-25 整理；以前只寫在別的條目裡）
+
+- [ ] 音頻：揚聲器、聽筒、麥克風、耳機。sm6375.dtsi 有 ADSP 的 remoteproc（`remoteproc_adsp`，lpass glink），板級 DTS 沒啟用；
+      沒有 q6 音頻服務、聲卡和 codec 的描述，要從下游 DT 補。
+- [ ] 攝像頭：sm6375.dtsi 沒有 CAMSS / CCI 節點，傳感器驅動也沒查。
+- [ ] 蜂窩網絡：通話、數據、短信。modem 已經在跑（WLAN 要它），sm6375.dtsi 沒有 IPA（數據通道），也沒配 ModemManager。
+- [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在哪個 DSP 上、要什麼客戶端，沒查。
+- [ ] 指紋（TZ 管的 SPI，GPIO 13–16 保留給 TZ）。
+- [ ] GNOME 設置裡的藍牙頁一直顯示「正在搜索」，不列出設備（bluetoothctl 能掃到並配對）；沒查原因。
+- [ ] BPF LSM：systemd 報「BPF LSM hook not enabled」，`RestrictFileSystems=` 不生效（要 CONFIG_BPF_LSM + DEBUG_INFO_BTF）。
 
 ## 以後
 
-- [ ] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換
-      wlroots 版本時，用 `sunstone-build-wlroots-phosh` 重編，再解除 IgnorePkg。
+- [x] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換
+      wlroots 版本時，用 `sunstone-build-wlroots-phosh` 重編，再解除 IgnorePkg。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）；腳本在 `rootfs-overlay-arch/`。
 
-- [ ] 熱管理：tsens 已有溫度，CPU 冷卻設備和電池溫度保護（充電器 JEITA）。
+- [ ] 熱管理的剩餘部分（CPU/GPU 的 cooling-maps 已做，見「服務器」）：`cpu-unk0/1`（tsens 11、12）沒綁定，電池溫區（sm5602）
+      沒有觸發點，充電靠充電器的 JEITA（TS 腳）。
 - [ ] PMK8350 ADC 通道、PM6125 溫度報警的閾值。
 - [x] RTC 偏移：timesyncd 經 Wi-Fi 對時，`rtc-offset-save.path` 在對時後保存偏移（M5）。
-- [ ] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要測試主機的 SOCKS 隧道。
-- [ ] 內核模塊：現在所有驅動都編進內核，rootfs 裡沒有 `/lib/modules`；以後要裝模塊（`modules_install` + 推送）。
+- [x] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要測試主機的 SOCKS 隧道。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）。
+- [x] 內核模塊：現在所有驅動都編進內核，rootfs 裡沒有 `/lib/modules`；以後要裝模塊（`modules_install` + 推送）。
+      （2026-10-25 做完：build-kernel.sh 編譯並安裝模塊，`tools/push-modules.sh`，mkrootfs-ubuntu.sh 也裝進新 root。）
 - [x] DTS 合併（2026-10-25）：m1 → … → m6 → m6d 的串聯合成一個板級 `dts/sm4375-xiaomi-sunstone.dts`（每個節點一次，
       覆蓋過的值直接寫最終值），加 `-rescue.dts`（救援模式，shim 不開看門狗）。校驗：兩者經 cpp + `dtc -O dts -s` 展開排序、
       去掉 phandle 行後，只差 model 字符串。舊文件和二分樹（m6a/e/f/g、m3rescue）在 git tag `dts-milestones`。
