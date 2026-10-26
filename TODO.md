@@ -213,8 +213,14 @@
       固定 MAC（掃描也不隨機）、DHCP client ID = MAC。地址變了（新的 DHCP 標識），測試主機的 reach-log 跟著改；
       路由器上給 02:53:4e:00:00:10 綁地址就能固定。`sunstone-wifi-add` 在 NM 運行時改用 `nmcli --ask`。
       build-rootfs.sh 仍然默認 networkd（服務器、無桌面時）。
-- [ ] reach-log（測試主機）裝 Ubuntu 後有一段時間每次 ssh 都卡在認證前（sshd `Timeout before authentication`），手動 ssh
-      正常，重啟 reach-log 後恢復；sshd 沒有 PerSourcePenalties 記錄。原因未明。
+- [x] **Wi-Fi 上 DSCP EF 的大包丟失**（原「reach-log 卡在認證前」，2026-10-26 查清並修好）：經 AP 發往手機、DSCP EF
+      （語音類）且 IP 包 > 約 700 字節的幀時好時壞地全丟，OpenSSH 給交互式會話打 EF，所以 ssh 卡在 KEX（ping、普通流量
+      是盡力而為類，不受影響）。原因：藍牙鼠標 M575 的 BLE 間隔 7.5 ms 佔共用天線，Wi-Fi 省電關着時共存機制不能讓 AP
+      暫存，AP 發往手機的語音類幀失敗、降到 CCK 5.5 Mbit/s，長幀塞不進藍牙事件的空檔（證據見 LOG）。修法（用户選的）：
+      有藍牙連接時才開 Wi-Fi 省電 —— `sunstone-wifi-btcoex`，由 `80-sunstone-btcoex.rules`（`hciN:句柄` 增刪）和
+      `80-sunstone-wlan0.rules` 調用；NetworkManager `wifi.powersave=1`（不管）。驗證：斷開/重連時省電跟着關/開，連着
+      鼠標和鍵盤時 EF 大包和 Wi-Fi ssh 正常，重啟後同樣。代價：連着藍牙時 Wi-Fi 延遲約 50 ms。測試主機的 `ef-mon.sh`
+      還在記錄（logs/ef-mon.log）。
 - [ ] GNOME 鎖屏（用户 2026-10-25 想要「按一下熄屏、再按一下亮屏並顯示鎖屏」，先擱置，現在能熄屏就夠）：gnome-shell 只在
       GDM 存在時啟用 ScreenShield（解鎖靠 GDM 驗證密碼；沒有 GDM 時 org.gnome.ScreenSaver 是空接口）。方案：裝 gdm3，由它
       自動登錄 phone 啟動 GNOME（代替 gnome.service，仍手動 `systemctl start gdm`，開機文本模式；GDM 佔 tty1，停止後要
@@ -371,6 +377,21 @@
         volatile）；`/sys/class/leds/white:flash`，手電筒 36 級（最大 106 mA），閃光 1.0 A、0.4 s。用户：三步都正常。
         GPIO51（原廠 CUSTOM_GPIO2，大概是 STROBE 腳）沒用。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
+- [x] **USB OTG**（2026-10-26，boot-172；用户要的）：Hub（Genesys 0610）+ SD 讀卡器（Ubuntu 安裝盤，只讀 23 MB/s）+
+      AX88179 網卡（cdc_ncm）都能用；拔掉後升壓關、充電恢復、回到 device，USB ssh 正常。Type-C 芯片：原廠 DT 寫
+      `richtek,rt1711h@4e`（i2c10，中斷 GPIO59），讀 TCPC 寄存器是 **Hynetek HUSB311**（VID 0x2E99、PID 0x0311），主線
+      `tcpci_rt1711h`。做法：USB 改扁平 `qcom,snps-dwc3`（legacy glue 在 otg 模式只靠 extcon 設 VBUS override，扁平
+      glue 跟着 role switch 設）、`dr_mode = "otg"` + `usb-role-switch`（默認 peripheral，TCPM 加載前 gadget 照常）；
+      HUSB311 + `usb-c-connector`（雙角色、Try.SNK、`pd-disable`、作源時 Rp 1.5A）；VBUS = bq25890 的 `usb-otg-vbus`。
+      SC89890H 只置 OTG_CONFIG 時不升壓，要先關 CHG_CONFIG → 本地補丁 0028。
+- [x] GNOME 自動掛載（2026-10-26，boot-174）：ISO/FAT 要 `NLS_UTF8`（已開，另加 Joliet、zisofs、exFAT、NTFS3、UDF）；
+      ISO 分區插上即掛；ext4 按 Ubuntu 的 `64-ext4.rules` 不自動掛（點擊掛載）；內部 UFS 用 `80-sunstone-ufs-hidden.rules`
+      從 udisks 隱藏。FAT/exFAT 的 U 盤沒實測。
+- [x] USB 3.0：做不了。官方規格是 USB Type-C 2.0；下游 DT 的 QMP USB3/DP 組合 PHY（0x1630000）是 Blair 參考板的，
+      其初始化序列和主線 `sm8250_usb3dpphy_cfg` 的表 127/144 項相同（13 項通道調參不同）。
+- [ ] OTG 剩下的：PD 關着（充電器按 Rp 給 5 V；要快充或數據角色交換再開）；角色切換時 `dwc3-qcom: remote wakeup
+      not configured`（沒配 wakeup-source）；udev 的 `mtp-probe` 不存在（libmtp 規則，無害）；接 OTG 時手機用電池
+      給外設供電，長時間接大功率設備會耗盡電池。
 
 ## 以後
 
