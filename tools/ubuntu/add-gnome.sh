@@ -17,7 +17,7 @@ in_root() { if [ "$R" = / ]; then "$@"; else chroot "$R" "$@"; fi; }
 ln -sf /dev/null "$R/etc/systemd/system/NetworkManager.service"
 in_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends $PKGS
 in_root id phone >/dev/null 2>&1 || in_root useradd -m -u 1000 -s /bin/bash -G video,render,input,audio phone
-cp -a "$SRC/rootfs-overlay-gnome/." "$R/"
+cp -a --no-preserve=ownership "$SRC/rootfs-overlay-gnome/." "$R/"
 (cd "$SRC/rootfs-overlay-gnome" && find . -mindepth 1) | sed "s|^\.|${R%/}|" | xargs chown -h 0:0
 in_root glib-compile-schemas /usr/share/glib-2.0/schemas
 # one desktop at a time on tty7

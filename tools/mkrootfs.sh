@@ -56,7 +56,7 @@ printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=notice\n' > "$R/etc/systemd/j
 
 # repo-managed files (rootfs-overlay/ and the Arch-only rootfs-overlay-arch/), owned by root
 for o in rootfs-overlay rootfs-overlay-arch; do
-	cp -a "$ROOT/$o/." "$R/"
+	cp -a --no-preserve=ownership "$ROOT/$o/." "$R/"
 	chown -R 0:0 $(cd "$ROOT/$o" && find . -mindepth 1 | sed "s|^\.|$R|")
 done
 

@@ -72,8 +72,13 @@
       （是否要求 PLL 在改頻時處於某種狀態，或 sm6375 的 Lucid 要用不同的 latch 流程）。
 - [ ] `DSI PLL(0) lock failed, status=0x00000000` / `PLL(0) lock failed`：每次開機兩次（boot-133、134 都有，緊挨着 Lucid
       PLL 的兩條），顯示正常。可能是 MDSS 復位後 PHY 還沒初始化時就有人要 PLL（同上面的 byte/pclk 告警），一起查。
-- [ ] snap 掛載時 `SQUASHFS error: Xattrs in filesystem, these will be ignored`（兩個 snap，掛載正常）：`sunstone.config` 已加
-      `SQUASHFS_XATTR=y`（Ubuntu 的內核也開），下一次編內核時生效。
+- [x] snap 掛載時 `SQUASHFS error: Xattrs in filesystem, these will be ignored`（兩個 snap，掛載正常）：`sunstone.config` 已加
+      `SQUASHFS_XATTR=y`（Ubuntu 的內核也開）。（2026-10-26 boot-143：7 個 squashfs 掛載，沒有這條錯誤。）
+- [ ] **ADSP 重啟後整機復位**（boot-143）：手動 `remoteproc stop/start` 和 sensors PD 崩潰觸發的 SSR 都一樣。q6afe 重新探測
+      正常（補丁 0013 前這裡是空指針），但 LPASS 時鐘還沒好：rx/tx/va macro 和 lpass-lpi 的 `__pm_clk_enable` 返回 -6，
+      AFE set params -22，VA SoundWire `link failed to connect`、寫 FIFO 溢出，之後幾十毫秒內沒有任何日誌就復位（大概是沒時鐘時
+      訪問 LPASS 寄存器，總線錯誤）。服務器上算是能恢復（約 1 分鐘回來），但音頻設備要能熬過 SSR：macro/SoundWire 在 q6afe
+      時鐘消失時停止訪問寄存器，ADSP 回來後重新 probe（主線 sm8250 等平台怎麼處理的對照一下）。
 - [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
       panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的
       ECC/dmesg 區從沒進過倉庫裏的 DTS（試驗時是臨時改的）。
@@ -258,7 +263,18 @@
       的 receiver 模式？）、麥克風（WCD TX AMIC → VA/TX SoundWire → TX macro）。已知告警：SoundWire 端口數比 sm6115 多一個
       （`din/dout-ports mismatch with controller`）；q6afe 的 LPASS 硬件 devote（0x100f6）被 ADSP 拒絕；SIA8159 的校準 CRC
       對不上（芯片裡就是廠商默認值 76 66 70，默認值自己也通不過校驗，寫回同樣的值）。測試時音量要小（用户要求）。
-- [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上，要 hexagonrpcd + libssc（postmarketOS，第三方代碼）。
+- [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
+      boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
+      （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀
+      `persist/sensors/registry/sns_reg_version` 和 `registry/`，再對 `/vendor/etc/sensors/config` 的每個 JSON 寫
+      `registry/../temp.json`、rename 進 `registry/`。Ubuntu 的 hexagonrpcd 0.4.0 只讀（上游 0.5.0 也是），第一次寫就失敗，
+      registry 任務斷言（`sns_registry_sensor.c:154`），整個 ADSP 重啟（boot-141：接着 q6afe 重探測空指針，系統半掛 → 補丁 0013）。
+      `tools/ubuntu/hexagonrpcd-sunstone.patch`（`add-hexagonrpcd.sh` 編進 `/usr/local/libexec/hexagonrpc/`，build-rootfs.sh
+      調用）：`-W DIR` 可寫的註冊表（`/var/lib/hexagonrpcd/sensors`，第一次啟動從 sunstone-fw-install 的只讀副本複製，persist 分區
+      從不寫），fwrite/fremove/frename，方法號 ≥ 31 的分派，大於 256 字節的輸入用 get_in_bufs2，調用失敗不再讓守護進程退出。
+      剩下：陀螺儀（ssccli 不支持，要另外試）；磁力計讀數幅度約 520 μT（地磁約 50 μT，未校準還是揚聲器磁鐵？）；
+      libssc 是手動編在手機 `/usr/local`（0.4.4），沒有進構建腳本；GNOME 的自動旋轉/亮度要 iio-sensor-proxy 帶 libssc 支持
+      （Ubuntu 的包沒有）；PD 還會找本地接口 `sns_registry`（我們沒有，返回錯誤後它繼續）、`pcba_config`（華勤 sysfs，沒有）。
 - [ ] NFC：ST21NFC（I2C 0x08），查主線 st-nci 是否兼容。
 - [ ] 攝像頭：原廠 IFE/OPE/CCI（cam-isp）；主線 CAMSS 不支持 sm6375，sm6375.dtsi 也沒有 CAMSS / CCI 節點。工作量很大，大概率不做。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。

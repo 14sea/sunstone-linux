@@ -11,14 +11,32 @@
 #    (firmware/) -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
 #  - bluetooth_a (vfat, read-only): the WCN3988's patch and NVM (apbtfw*.tlv, apnv*.bin; Xiaomi's,
 #    not linux-firmware's) -> /lib/firmware/updates/qca/
+#  - the ADSP's sensor files for hexagonrpcd -> /usr/share/qcom/sm4375/Xiaomi/sunstone/ (its -R):
+#    vendor_a's etc/sensors/config and sns_reg_config, the sensor registry from persist
+#    (sensors/registry/registry: the factory calibration, and its sns_reg_version), dsp_a's DSP
+#    libraries, and socinfo values from SMEM (mainline has no /sys/devices/soc0/hw_platform).
+#    persist and dsp_a are ext4: mounted through read-only loop devices with noload, so not even a
+#    journal replay can write to them.
 #  - modemst1/2, fsg, fsc (the modem's EFS) -> /var/lib/rmtfs/, served by rmtfs-dir.service,
 #    so the modem's EFS writes land in these copies and never on the partitions.
 # Re-running refreshes the firmware but keeps existing EFS copies.
 set -eu
 FW=/lib/firmware/qcom/sm4375/xiaomi/sunstone
 EFS=/var/lib/rmtfs
-MNT=$(mktemp -d) VND=$(mktemp -d) LOOP=
-trap 'umount "$MNT" "$VND" 2>/dev/null; [ -n "$LOOP" ] && losetup -d "$LOOP"; rmdir "$MNT" "$VND"; rm -f "$MNT.board-2.bin"' EXIT
+SNS=/usr/share/qcom/sm4375/Xiaomi/sunstone
+MNT=$(mktemp -d) VND=$(mktemp -d) EXT=$(mktemp -d) LOOP= LOOP2=
+# set +e: umount fails for what is no longer mounted, and with -e that would end the trap there
+trap 'set +e; umount "$MNT" "$VND" "$EXT" 2>/dev/null; [ -n "$LOOP" ] && losetup -d "$LOOP"; [ -n "$LOOP2" ] && losetup -d "$LOOP2";
+	rmdir "$MNT" "$VND" "$EXT"; rm -f "$MNT.board-2.bin"' EXIT
+
+# an ext4 partition, read-only down to the block device: ro_ext4 PARTLABEL
+ro_ext4() {
+	LOOP2=$(losetup -r -f --show /dev/disk/by-partlabel/$1)
+	mount -t ext4 -o ro,noload "$LOOP2" "$EXT"
+}
+ro_ext4_done() {
+	umount "$EXT"; losetup -d "$LOOP2"; LOOP2=
+}
 
 mount -o ro /dev/disk/by-partlabel/modem_a "$MNT"
 mkdir -p "$FW"
@@ -38,12 +56,37 @@ cp "${zap%.mdt}".* "$FW"/
 echo "zap shader: $(ls "${zap%.mdt}".* | sed "s|^$VND||" | tr '\n' ' ')"
 cp "$VND"/firmware/ipa_fws.mdt "$VND"/firmware/ipa_fws.b[0-9]* "$FW"/
 echo "ipa: $(ls "$VND"/firmware/ipa_fws.mdt "$VND"/firmware/ipa_fws.b[0-9]* | sed "s|^$VND||" | tr '\n' ' ')"
+rm -rf "$SNS"; mkdir -p "$SNS/sensors"
+cp -r "$VND"/etc/sensors/config "$SNS/sensors/config"
+cp "$VND"/etc/sensors/sns_reg_config "$SNS/sensors/sns_reg.conf"
 
 umount "$MNT"
 mount -o ro /dev/disk/by-partlabel/bluetooth_a "$MNT"
 mkdir -p /lib/firmware/updates/qca
 cp "$MNT"/image/apbtfw*.tlv "$MNT"/image/apnv*.bin /lib/firmware/updates/qca/
 echo "bluetooth: $(cd "$MNT/image" && ls apbtfw*.tlv apnv*.bin | tr '\n' ' ')"
+
+ro_ext4 persist
+cp -r "$EXT"/sensors/registry/registry "$SNS/sensors/registry"
+# the config version the registry was generated for: without it the SSC regenerates the registry
+cp "$EXT"/sensors/registry/sns_reg_version "$SNS/sensors/sns_reg_version"
+ro_ext4_done
+ro_ext4 dsp_a
+mkdir -p "$SNS/dsp"; cp -r "$EXT"/adsp "$EXT"/cdsp "$SNS/dsp/"
+ro_ext4_done
+# what the SSC reads from Android's /sys/devices/soc0: hardware platform 11 is QRD, subtype 0
+mkdir -p "$SNS/socinfo"
+S=/sys/kernel/debug/qcom_socinfo
+mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug
+[ "$(cat $S/hardware_platform)" = 11 ] && echo QRD > "$SNS/socinfo/hw_platform"
+cat $S/hardware_platform_subtype > "$SNS/socinfo/platform_subtype_id"
+echo QRD > "$SNS/socinfo/platform_subtype"
+cat $S/platform_version > "$SNS/socinfo/platform_version"
+cat /sys/devices/soc0/soc_id > "$SNS/socinfo/soc_id"
+cat /sys/devices/soc0/revision > "$SNS/socinfo/revision"
+chmod -R a+rX "$SNS"
+echo "sensors: $(ls "$SNS/sensors/config" | wc -l) configs, $(ls "$SNS/sensors/registry" | wc -l) registry files," \
+	"dsp $(du -sh "$SNS/dsp" | cut -f1), socinfo $(cat "$SNS/socinfo/hw_platform") $(cat "$SNS/socinfo/soc_id")"
 
 BD=ath10k/WCN3990/hw1.0
 mkdir -p /lib/firmware/updates/$BD

@@ -1,0 +1,50 @@
+ASoC: qcom: q6dsp-lpass-clocks: set the drvdata before registering the clocks
+
+q6dsp_clock_dev_probe() sets the drvdata only after it has registered all
+clocks. Registering a clock reparents the orphans waiting for it, and a
+CLK_OPS_PARENT_ENABLE orphan prepares its new parent: clk_q6dsp_prepare()
+then reads the still-NULL drvdata. On SM4375 this happens when the ADSP
+restarts (the protection domain comes back and APR re-adds q6afe):
+
+  Unable to handle kernel NULL pointer dereference at virtual address 0000000000000350
+  clk_q6dsp_prepare+0x2c/0x50 [snd_q6dsp_common]
+  q6dsp_clock_dev_probe+0x120/0xb68 [snd_q6dsp_common]
+  q6afe_probe+0x80/0xa0 [q6afe]
+  apr_device_probe+0x2c/0x50 [apr]
+  of_register_apr_devices+0x1e4/0x338 [apr]
+  apr_pd_status+0x40/0x70 [apr]
+
+Set the drvdata before the loop.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/qcom/qdsp6/q6dsp-lpass-clocks.c b/sound/soc/qcom/qdsp6/q6dsp-lpass-clocks.c
+index ab7d20580..679462525 100644
+--- a/sound/soc/qcom/qdsp6/q6dsp-lpass-clocks.c
++++ b/sound/soc/qcom/qdsp6/q6dsp-lpass-clocks.c
+@@ -144,6 +144,11 @@ int q6dsp_clock_dev_probe(struct platform_device *pdev)
+ 
+ 	cc->desc = desc;
+ 	cc->dev = dev;
++	/*
++	 * Before the clocks are registered: registering one can reparent orphans to it, and with
++	 * CLK_OPS_PARENT_ENABLE that prepares it, which needs the drvdata.
++	 */
++	dev_set_drvdata(dev, cc);
+ 	q6dsp_clks = desc->clks;
+ 
+ 	for (i = 0; i < desc->num_clks; i++) {
+@@ -174,12 +179,6 @@ int q6dsp_clock_dev_probe(struct platform_device *pdev)
+ 			return ret;
+ 	}
+ 
+-	ret = devm_of_clk_add_hw_provider(dev, q6dsp_of_clk_hw_get, cc);
+-	if (ret)
+-		return ret;
+-
+-	dev_set_drvdata(dev, cc);
+-
+-	return 0;
++	return devm_of_clk_add_hw_provider(dev, q6dsp_of_clk_hw_get, cc);
+ }
+ EXPORT_SYMBOL_GPL(q6dsp_clock_dev_probe);

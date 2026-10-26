@@ -27,7 +27,7 @@ D=lomiri-system-settings.desktop
 install -d "$R/usr/local/share/applications"
 grep -v '^OnlyShowIn=' "$R/usr/share/applications/$D" | sed '/^\[Desktop Entry\]/a OnlyShowIn=Lomiri;' \
 	> "$R/usr/local/share/applications/$D"
-cp -a "$SRC/rootfs-overlay-lomiri/." "$R/"
+cp -a --no-preserve=ownership "$SRC/rootfs-overlay-lomiri/." "$R/"
 (cd "$SRC/rootfs-overlay-lomiri" && find . -mindepth 1) | sed "s|^\.|${R%/}|" | xargs chown -h 0:0
 [ "$R" = / ] && systemctl daemon-reload && systemctl try-restart sunstone-powerkey
 echo "Lomiri added; start it with: systemctl start lomiri"

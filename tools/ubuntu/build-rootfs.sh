@@ -24,7 +24,7 @@ PKGS="systemd systemd-sysv systemd-resolved systemd-timesyncd libpam-systemd lib
 	openssh-server iproute2 iputils-ping iw wpasupplicant rfkill rmtfs tqftpserv qrtr-tools linux-firmware
 	python3 ca-certificates curl less nano vim-tiny sudo bash-completion tzdata apparmor ufw
 	unattended-upgrades cron logrotate htop iperf3 strace i2c-tools usbutils ethtool lsof file psmisc
-	zstd xz-utils gpg evtest ir-keytable libqmi-utils mesa-utils libgl1-mesa-dri libegl-mesa0 mesa-vulkan-drivers"
+	zstd xz-utils gpg evtest ir-keytable libqmi-utils hexagonrpcd mesa-utils libgl1-mesa-dri libegl-mesa0 mesa-vulkan-drivers"
 
 # debootstrap and Ubuntu's archive keyring, if this system has none: the keyring is accepted for
 # its 2018 archive key's fingerprint, then the chain InRelease -> Packages.xz -> .deb is checked
@@ -166,9 +166,12 @@ rm -f "$R"/etc/ufw/*.rules.[0-9]*
 install -d "$R/etc/systemd/journald.conf.d"
 printf '[Journal]\nForwardToKMsg=yes\nMaxLevelKMsg=notice\n' > "$R/etc/systemd/journald.conf.d/kmsg.conf"
 
-# repo-managed files (rootfs-overlay/), owned by root
-cp -a "$SRC/rootfs-overlay/." "$R/"
+# repo-managed files (rootfs-overlay/), owned by root (cp -a of DIR/. would give $R itself the
+# checkout's owner: on the phone that is uid 1000, phone, owning /)
+cp -a --no-preserve=ownership "$SRC/rootfs-overlay/." "$R/"
 (cd "$SRC/rootfs-overlay" && find . -mindepth 1) | sed "s|^\.|$R|" | xargs chown -h 0:0
+# hexagonrpcd with writes for the sensors PD, which the overlay's hexagonrpcd.service.d runs
+bash "$SRC/tools/ubuntu/add-hexagonrpcd.sh" "$R" "$SRC"
 
 # not a first boot (that would apply the presets to every unit)
 [ -s "$R/etc/machine-id" ] || chroot "$R" systemd-machine-id-setup

@@ -1114,7 +1114,7 @@
 };
 
 /*
- * ADSP (audio, later the sensors): firmware from the phone's modem_a (adsp.mdt/.bNN), the carve-out
+ * ADSP (audio and the sensors): firmware from the phone's modem_a (adsp.mdt/.bNN), the carve-out
  * at 0x86700000 above. Audio runs on APR (downstream qcom,msm-audio-apr, q6core/afe/asm/adm), laid
  * out as on sm6115; the ASM's buffers go through apps SMMU stream 0xa1 (downstream msm-audio-ion).
  */
@@ -1189,6 +1189,49 @@
 					compatible = "qcom,q6adm-routing";
 					#sound-dai-cells = <0>;
 				};
+			};
+		};
+
+		/*
+		 * FastRPC to the ADSP: hexagonrpcd serves the sensors PD its registry and configs over it.
+		 * Context banks: downstream msm_fastrpc_compute_cb10..14 (adsprpc-smd), streams 0xa3-0xa7.
+		 */
+		fastrpc {
+			compatible = "qcom,fastrpc";
+			qcom,glink-channels = "fastrpcglink-apps-dsp";
+			label = "adsp";
+			qcom,non-secure-domain;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compute-cb@3 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <3>;
+				iommus = <&apps_smmu 0xa3 0x0>;
+			};
+
+			compute-cb@4 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <4>;
+				iommus = <&apps_smmu 0xa4 0x0>;
+			};
+
+			compute-cb@5 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <5>;
+				iommus = <&apps_smmu 0xa5 0x0>;
+			};
+
+			compute-cb@6 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <6>;
+				iommus = <&apps_smmu 0xa6 0x0>;
+			};
+
+			compute-cb@7 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <7>;
+				iommus = <&apps_smmu 0xa7 0x0>;
 			};
 		};
 	};
