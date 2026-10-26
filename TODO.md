@@ -275,7 +275,11 @@
       剩下：陀螺儀（ssccli 不支持，要另外試）；磁力計讀數幅度約 520 μT（地磁約 50 μT，未校準還是揚聲器磁鐵？）；
       libssc 是手動編在手機 `/usr/local`（0.4.4），沒有進構建腳本；GNOME 的自動旋轉/亮度要 iio-sensor-proxy 帶 libssc 支持
       （Ubuntu 的包沒有）；PD 還會找本地接口 `sns_registry`（我們沒有，返回錯誤後它繼續）、`pcba_config`（華勤 sysfs，沒有）。
-- [ ] NFC：ST21NFC（I2C 0x08），查主線 st-nci 是否兼容。
+- [x] NFC：**本機沒有**（2026-10-26 查證，不做）。原廠設備樹的公共部分有 `st21nfc@8`（i2c@4a80000 = QUP0 SE0，VEN GPIO6、
+      IRQ GPIO9、clkreq GPIO7），vendor 也帶 ST 的 HAL、固件和 `st21nfc.ko`，但都是各版本共用的：NFC 的 HAL 和 STFlashTool 只在
+      `ro.boot.product.hardware.sku=sunstone_global` 時啟動。ABL（LinuxLoader）的 SKU 取自 SMEM 條目 135 的第一個 u32 v，
+      按 v % 16 查表（0 cn、1 global、2 in、3 cn_new、4/5 moonstone_p、6 x、7 cn，其他 unknow），只有 global 帶 NFC。
+      本機的值（一個只讀的臨時模塊 `qcom_smem_get(135)` 讀到）不是 global。要百分之百確認可以開 i2c0、拉高 GPIO6 探測 0x08。
 - [ ] 攝像頭：原廠 IFE/OPE/CCI（cam-isp）；主線 CAMSS 不支持 sm6375，sm6375.dtsi 也沒有 CAMSS / CCI 節點。工作量很大，大概率不做。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
 
