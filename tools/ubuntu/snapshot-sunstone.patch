@@ -1,0 +1,350 @@
+diff --git a/aperture/src/lib.rs b/aperture/src/lib.rs
+index cb57112..39b8749 100644
+--- a/aperture/src/lib.rs
++++ b/aperture/src/lib.rs
+@@ -23,6 +23,7 @@ mod code_detector;
+ mod device_provider;
+ mod enums;
+ mod error;
++mod orientation;
+ mod pipeline_tee;
+ mod utils;
+ mod viewfinder;
+diff --git a/aperture/src/orientation.rs b/aperture/src/orientation.rs
+new file mode 100644
+index 0000000..1d58ad9
+--- /dev/null
++++ b/aperture/src/orientation.rs
+@@ -0,0 +1,249 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++//! Turning the camera image along with the display.
++//!
++//! An integrated camera reports how it is mounted as an `image-orientation` tag (PipeWire's
++//! videotransform meta, from libcamera's rotation property), and the sink turns the preview
++//! upright for the device's natural orientation. When the compositor rotates the display, as on
++//! a phone held in landscape, the image has to turn by the display's rotation as well, the other
++//! way round for a front camera, whose preview is mirrored after it. The tag is rewritten where
++//! the camera's buffers leave the source bin, for the preview; camerabin does not pass it on to
++//! its picture branch, whose `videoflip` gets the same turn set when a picture is taken.
++//! Cameras without the tag (USB webcams) are left alone.
++
++use std::sync::{Arc, Mutex};
++
++use gst::prelude::*;
++use gtk::prelude::*;
++use gtk::{gio, glib};
++
++/// An orientation as in the `image-orientation` tag: flipped horizontally first, then rotated
++/// clockwise by the degrees.
++type Turn = (bool, u32);
++
++#[derive(Debug, Default)]
++struct State {
++    /// What the camera reports, `None` until it sends a tag.
++    sensor: Option<Turn>,
++    /// The display's rotation in degrees.
++    display: u32,
++    front: bool,
++    /// What went downstream last.
++    applied: Option<Turn>,
++    /// Set while the probe's own tag event goes through the pad.
++    injecting: bool,
++}
++
++impl State {
++    fn wanted(&self) -> Option<Turn> {
++        let (flip, degrees) = self.sensor?;
++        let display = if self.front {
++            (360 - self.display) % 360
++        } else {
++            self.display
++        };
++        Some((flip, (degrees + display) % 360))
++    }
++}
++
++fn parse(value: &str) -> Option<Turn> {
++    let (flip, rest) = match value.strip_prefix("flip-") {
++        Some(rest) => (true, rest),
++        None => (false, value),
++    };
++    let degrees = rest.strip_prefix("rotate-")?.parse::<u32>().ok()?;
++    matches!(degrees, 0 | 90 | 180 | 270).then_some((flip, degrees))
++}
++
++fn tag_value((flip, degrees): Turn) -> String {
++    format!("{}rotate-{degrees}", if flip { "flip-" } else { "" })
++}
++
++fn tag_event(tags: Option<&gst::TagListRef>, turn: Turn) -> gst::Event {
++    let mut tags = tags.map_or_else(gst::TagList::new, |tags| tags.to_owned());
++    tags.make_mut().add::<gst::tags::ImageOrientation>(
++        &tag_value(turn).as_str(),
++        gst::TagMergeMode::Replace,
++    );
++    gst::event::Tag::new(tags)
++}
++
++/// The rotation of mutter's primary logical monitor in a `GetCurrentState` reply, in degrees.
++fn primary_rotation(reply: &glib::Variant) -> Option<u32> {
++    // (serial, monitors, logical monitors, properties)
++    let logical_monitors = reply.try_child_value(2)?;
++    let mut first = None;
++    for i in 0..logical_monitors.n_children() {
++        let monitor = logical_monitors.child_value(i);
++        // (x, y, scale, transform, primary, monitors, properties); transforms 0-3 rotate by
++        // 0, 90, 180 or 270 degrees, 4-7 flip as well
++        let transform = monitor.try_child_value(3)?.get::<u32>()?;
++        let primary = monitor.try_child_value(4)?.get::<bool>()?;
++        let degrees = (transform % 4) * 90;
++        if primary {
++            return Some(degrees);
++        }
++        first.get_or_insert(degrees);
++    }
++    first
++}
++
++#[derive(Debug, Clone, Default)]
++pub(crate) struct Orientation(Arc<Mutex<State>>);
++
++impl Orientation {
++    pub(crate) fn set_display_rotation(&self, degrees: u32) {
++        let degrees = degrees % 360;
++        let mut state = self.0.lock().unwrap();
++        if state.display != degrees {
++            log::debug!("Display rotation: {degrees}");
++            state.display = degrees;
++        }
++    }
++
++    pub(crate) fn set_front(&self, front: bool) {
++        self.0.lock().unwrap().front = front;
++    }
++
++    /// The `videoflip` method that turns a picture upright now.
++    pub(crate) fn picture_method(&self) -> &'static str {
++        match self.0.lock().unwrap().wanted() {
++            None | Some((false, 0)) => "identity",
++            Some((false, 90)) => "90r",
++            Some((false, 180)) => "180",
++            Some((false, 270)) => "90l",
++            Some((true, 0)) => "horiz",
++            Some((true, 90)) => "ul-lr",
++            Some((true, 180)) => "vert",
++            Some((true, 270)) => "ur-ll",
++            Some(_) => unreachable!(),
++        }
++    }
++
++    /// Drops orientation tags going out of `pad`, behind an element that has turned the image.
++    pub(crate) fn strip(pad: &gst::Pad) {
++        pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, |_, info| {
++            let Some(gst::PadProbeData::Event(ref event)) = info.data else {
++                return gst::PadProbeReturn::Ok;
++            };
++            let gst::EventView::Tag(tag) = event.view() else {
++                return gst::PadProbeReturn::Ok;
++            };
++            if tag.tag().get::<gst::tags::ImageOrientation>().is_none() {
++                return gst::PadProbeReturn::Ok;
++            }
++            let mut tags = tag.tag().to_owned();
++            tags.make_mut().remove::<gst::tags::ImageOrientation>();
++            info.data = Some(gst::PadProbeData::Event(gst::event::Tag::new(tags)));
++            gst::PadProbeReturn::Ok
++        });
++    }
++
++    /// Follows the rotation of mutter's primary monitor (org.gnome.Mutter.DisplayConfig). Without
++    /// mutter it stays 0. `keep` gets the proxy, which has to live as long as the viewfinder.
++    pub(crate) fn watch_display(&self, keep: impl FnOnce(gio::DBusProxy) + 'static) {
++        let this = self.clone();
++        gio::DBusProxy::for_bus(
++            gio::BusType::Session,
++            gio::DBusProxyFlags::DO_NOT_LOAD_PROPERTIES | gio::DBusProxyFlags::DO_NOT_AUTO_START,
++            None,
++            "org.gnome.Mutter.DisplayConfig",
++            "/org/gnome/Mutter/DisplayConfig",
++            "org.gnome.Mutter.DisplayConfig",
++            gio::Cancellable::NONE,
++            move |res| {
++                let proxy = match res {
++                    Ok(proxy) => proxy,
++                    Err(err) => {
++                        log::debug!("No display configuration: {err}");
++                        return;
++                    }
++                };
++                let update = move |proxy: &gio::DBusProxy| {
++                    let this = this.clone();
++                    proxy.call(
++                        "GetCurrentState",
++                        None,
++                        gio::DBusCallFlags::NONE,
++                        -1,
++                        gio::Cancellable::NONE,
++                        move |res| match res {
++                            Ok(reply) => {
++                                if let Some(degrees) = primary_rotation(&reply) {
++                                    this.set_display_rotation(degrees);
++                                }
++                            }
++                            Err(err) => log::debug!("GetCurrentState failed: {err}"),
++                        },
++                    );
++                };
++                update(&proxy);
++                proxy.connect_local("g-signal", false, move |args| {
++                    if args[2].get::<String>().ok()?.as_str() == "MonitorsChanged" {
++                        update(&args[0].get::<gio::DBusProxy>().ok()?);
++                    }
++                    None
++                });
++                keep(proxy);
++            },
++        );
++    }
++
++    /// Rewrites the orientation tag going out of `pad`, and sends a new one ahead of the next
++    /// buffer whenever the wanted orientation changes.
++    pub(crate) fn attach(&self, pad: &gst::Pad) {
++        let shared = self.0.clone();
++        pad.add_probe(
++            gst::PadProbeType::EVENT_DOWNSTREAM | gst::PadProbeType::BUFFER,
++            move |pad, info| {
++                let replacement = match info.data {
++                    Some(gst::PadProbeData::Event(ref event)) => {
++                        let mut state = shared.lock().unwrap();
++                        if state.injecting {
++                            return gst::PadProbeReturn::Ok;
++                        }
++                        match event.view() {
++                            gst::EventView::StreamStart(_) => {
++                                state.sensor = None;
++                                state.applied = None;
++                                None
++                            }
++                            gst::EventView::Tag(tag) => {
++                                let tags = tag.tag();
++                                let Some(sensor) = tags
++                                    .get::<gst::tags::ImageOrientation>()
++                                    .and_then(|value| parse(value.get()))
++                                else {
++                                    return gst::PadProbeReturn::Ok;
++                                };
++                                state.sensor = Some(sensor);
++                                let wanted = state.wanted().unwrap();
++                                state.applied = Some(wanted);
++                                (wanted != sensor).then(|| tag_event(Some(tags), wanted))
++                            }
++                            _ => None,
++                        }
++                    }
++                    Some(gst::PadProbeData::Buffer(_)) => {
++                        let mut state = shared.lock().unwrap();
++                        let wanted = state.wanted();
++                        if let Some(turn) = wanted.filter(|_| wanted != state.applied) {
++                            state.applied = wanted;
++                            state.injecting = true;
++                            drop(state);
++                            // from this streaming thread, ahead of the buffer; it passes this
++                            // probe again, which lets it through
++                            let _ = pad.push_event(tag_event(None, turn));
++                            shared.lock().unwrap().injecting = false;
++                        }
++                        None
++                    }
++                    _ => None,
++                };
++                if let Some(event) = replacement {
++                    info.data = Some(gst::PadProbeData::Event(event));
++                }
++                gst::PadProbeReturn::Ok
++            },
++        );
++    }
++}
+diff --git a/aperture/src/viewfinder.rs b/aperture/src/viewfinder.rs
+index 0cdc0f5..2352605 100644
+--- a/aperture/src/viewfinder.rs
++++ b/aperture/src/viewfinder.rs
+@@ -67,6 +67,9 @@ mod imp {
+         pub is_stopping_recording: Cell<bool>,
+         pub is_taking_picture: Cell<bool>,
+         pub is_front_camera: Cell<bool>,
++        pub(crate) orientation: crate::orientation::Orientation,
++        pub(crate) display_config: OnceCell<gtk::gio::DBusProxy>,
++        pub(crate) videoflip_image: OnceCell<gst::Element>,
+ 
+         pub timeout_handler: RefCell<Option<glib::SourceId>>,
+ 
+@@ -322,10 +325,41 @@ mod imp {
+             .build();
+             camerabin.set_property("video-capture-caps", caps_video);
+ 
++            // pictures are turned upright when taken (see orientation.rs)
++            let image_filter = gst::Bin::default();
++            let videoflip_image = gst::ElementFactory::make("videoflip")
++                .build()
++                .expect("Missing GStreamer Good Plug-ins");
++            crate::orientation::Orientation::strip(&videoflip_image.static_pad("src").unwrap());
++            self.videoflip_image.set(videoflip_image.clone()).unwrap();
+             let videoconvert_image = gst::ElementFactory::make("videoconvert")
+                 .build()
+                 .expect("Missing GStreamer Base Plug-ins");
+-            camerabin.set_property("image-filter", &videoconvert_image);
++            image_filter
++                .add_many([&videoflip_image, &videoconvert_image])
++                .unwrap();
++            gst::Element::link_many([&videoflip_image, &videoconvert_image]).unwrap();
++            image_filter
++                .add_pad(
++                    &gst::GhostPad::with_target(&videoflip_image.static_pad("sink").unwrap())
++                        .unwrap(),
++                )
++                .unwrap();
++            image_filter
++                .add_pad(
++                    &gst::GhostPad::with_target(&videoconvert_image.static_pad("src").unwrap())
++                        .unwrap(),
++                )
++                .unwrap();
++            camerabin.set_property("image-filter", &image_filter);
++
++            self.orientation.watch_display(glib::clone!(
++                #[weak]
++                obj,
++                move |proxy| {
++                    let _ = obj.imp().display_config.set(proxy);
++                }
++            ));
+ 
+             self.sink_paintable.set(paintablesink).unwrap();
+ 
+@@ -605,6 +639,9 @@ impl Viewfinder {
+         imp.is_taking_picture.set(true);
+ 
+         self.set_tags();
++        if let Some(videoflip) = imp.videoflip_image.get() {
++            videoflip.set_property_from_str("video-direction", imp.orientation.picture_method());
++        }
+ 
+         let camerabin = imp.camerabin();
+         camerabin.set_property_from_str("mode", "mode-image");
+@@ -1184,6 +1221,7 @@ impl Viewfinder {
+         ));
+ 
+         let pad = capsfilter_post_decode.static_pad("src").unwrap();
++        self.imp().orientation.attach(&pad);
+         let ghost_pad = gst::GhostPad::with_target(&pad)?;
+         ghost_pad.set_active(true)?;
+ 
+@@ -1218,6 +1256,7 @@ impl Viewfinder {
+ 
+         let is_front_camera = !matches!(camera.location(), crate::CameraLocation::Back);
+         imp.is_front_camera.set(is_front_camera);
++        imp.orientation.set_front(is_front_camera);
+ 
+         Ok(())
+     }
