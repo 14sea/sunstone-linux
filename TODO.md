@@ -1,6 +1,7 @@
 # sunstone Linux 待辦
 
-按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在在 M6（圖形桌面）。
+按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在（2026-10-26）：Ubuntu 上，外設見「還不能用的」
+（音頻、傳感器、蜂窩數據、攝像頭已做），長期熄屏運行見「服務器」。
 
 ## 遺留問題（M4 結束時，2026-10-22）
 
@@ -222,14 +223,14 @@
 - [ ] GNOME 偏卡：1080x2400@120 + 2.5 倍分數縮放壓在 Adreno 619（最高 650 MHz）上；60 Hz 模式有了但用户覺得不如
       120 Hz 絲滑；沒有 RealtimeKit（KMS 線程拿不到實時優先級）；GPU 700 MHz 檔（gpucc 沒有）。
 - [ ] Lomiri：GridUnit 28 時每次啟動不到 1 s 就 SIGSEGV（26 正常），沒查原因；熄屏時 Mir 照樣 120 Hz 合成（不知道屏幕
-      關了，也不顯示鎖屏）；網絡指示器沒有 NetworkManager 不顯示內容；沒有音頻、相機、通話。
+      關了，也不顯示鎖屏）；網絡指示器沒有 NetworkManager 不顯示內容；音頻、相機在 Lomiri 裡沒試，沒有通話。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。
 - [ ] Ubuntu 上跑一次 24 h 穩定性測試（之前用户說先不開始）：在最終配置上（modem 修復、電源鍵、啟動成功標記、省電關、
       開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時也要測一次重連）。
 
-## 還不能用的（2026-10-25 整理；以前只寫在別的條目裡）
+## 還不能用的（2026-10-25 整理；以前只寫在別的條目裡；2026-10-26 更新）
 
 按這個順序一項項做（2026-10-25 定，依據手機原廠的 live DT，`ios-sunstone/out/dt/sunstone-live.dts`）。用到別人的代碼
 （postmarketOS 補丁、下游驅動、第三方用戶態程序）先通讀、查安全性再用。
@@ -276,8 +277,7 @@
       現在的路徑：MultiMedia1 → RX_CODEC_DMA_RX_0 → RX0 → RX INT2 → RDAC3（RX3）→ AUX → SIA8159；手動用 amixer 設
       （`RX_CODEC_DMA_RX_0 Audio Mixer MultiMedia1`、`RX_MACRO RX0/RX1 MUX` AIF1_PB、`RX INT2_1 MIX1 INP0` RX0、`RDAC3_MUX` RX3、
       `AUX_RDAC Switch`、`LO Switch`，音量 `RX_RX2 Digital Volume`，84 = 0 dB，測試時 54）。功放增益未知（沒有增益寄存器的資料）。
-      剩下：UCM 配置（PipeWire/GNOME 才能用，揚聲器音量）、耳機（HPHL/HPHR、插孔檢測，要用户插耳機）、聽筒（EAR，或 SIA8159
-      的 receiver 模式？）、麥克風（WCD TX AMIC → VA/TX SoundWire → TX macro）。已知告警：SoundWire 端口數比 sm6115 多一個
+      之後做了（見下）：UCM、主麥和副麥、耳機和插孔檢測；聽筒（EAR）還不出聲。已知告警：SoundWire 端口數比 sm6115 多一個
       （`din/dout-ports mismatch with controller`）；q6afe 的 LPASS 硬件 devote（0x100f6）被 ADSP 拒絕；SIA8159 的校準 CRC
       對不上（芯片裡就是廠商默認值 76 66 70，默認值自己也通不過校驗，寫回同樣的值）。測試時音量要小（用户要求）。
       **主麥克風能錄（2026-10-26，boot-147）**：原廠 mixer_paths_qrd.xml：主麥 AMIC1 → ADC1 → TX SoundWire 端口 1 →
@@ -348,7 +348,7 @@
       按 v % 16 查表（0 cn、1 global、2 in、3 cn_new、4/5 moonstone_p、6 x、7 cn，其他 unknow），只有 global 帶 NFC。
       本機的值（一個只讀的臨時模塊 `qcom_smem_get(135)` 讀到）不是 global。硬件上也確認了（boot-144）：開 i2c0、GPIO6 輸出高
       （pinctrl debugfs `out high`）後整條總線掃描沒有任何應答，VEN 低時也沒有；同樣的掃描在 i2c10 上能看到沒綁驅動的 0x28、0x4e、0x66。
-- [ ] 攝像頭（2026-10-26 開始，boot-154–157）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
+- [x] 攝像頭（2026-10-26，boot-154–167；自動對焦除外，見下）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
       的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018），沒有 interconnect。
   - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
         RAW10 抓幀、libcamera simple 管線 + 軟件 ISP（1632x1224 約 29 fps，3200x2400 30 fps，緩衝區在 system dma-heap），

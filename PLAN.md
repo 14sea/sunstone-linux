@@ -121,6 +121,7 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 - GPU：a619_holi 節點（GMU wrapper，zap PAS 13），Mesa freedreno。
 - 桌面：Phosh/Sway/Weston 選一個。
 - 後續可選：ADSP 傳感器（hexagonrpcd + libssc，`ios-sunstone` 已經驗證過 registry 那條路）、音頻、調製解調器數據。
+  （2026-10-25/26 在 Ubuntu 上做了：傳感器、音頻、蜂窩數據，還有攝像頭；進展見 TODO.md「還不能用的」。）
 
 ## 可以從 ios-sunstone 復用的實測知識
 
