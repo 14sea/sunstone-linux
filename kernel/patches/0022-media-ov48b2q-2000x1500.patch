@@ -1,0 +1,272 @@
+media: i2c: ov48b2q: add a 2000x1500 mode
+
+A second mode, 2000x1500 (the 4000x3000 output binned again), up to 90
+fps and 30 fps by default, for consumers that cannot keep up with 12 MP:
+libcamera's software ISP manages 4000x3000 at about 15 fps.
+
+The registers that differ between the vendor's (Qualcomm CamX module data)
+4000x3000 and 2000x1500 settings, written after the 4000x3000 table; their
+PLL registers (0x0305, 0x0345, 0x4837) are left out, so the clocks stay as
+MediaTek's table sets them: the same 900 MHz link and 115.2 MHz timing
+clock, 768 clocks a line. Like MediaTek's binned 1280x720 table, the frame
+length copies at 0x381a-0x3827 are not written.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/ov48b2q.c b/drivers/media/i2c/ov48b2q.c
+index 02c5160f0..a024eb67e 100644
+--- a/drivers/media/i2c/ov48b2q.c
++++ b/drivers/media/i2c/ov48b2q.c
+@@ -2,10 +2,12 @@
+ /*
+  * OmniVision OV48B2Q 48 MP quad-Bayer sensor (CSI-2 D-PHY, four lanes).
+  *
+- * One mode: 4000x3000 binned Bayer at 30 fps from a 24 MHz clock, 1.8 Gbps per lane (link
+- * frequency 900 MHz), PDAF output off. The register tables are MediaTek's ov48b2q_mipi_raw
+- * driver's (GPL-2.0: init and 4000x3000 "preview", with the PDAF values its comments give for
+- * "pd off"); exposure, gain and frame length registers as that driver writes them.
++ * Two modes from a 24 MHz clock, 1.8 Gbps per lane (link frequency 900 MHz), PDAF output off:
++ * 4000x3000 binned Bayer at 30 fps and 2000x1500 (binned again) at up to 90 fps. The register
++ * tables are MediaTek's ov48b2q_mipi_raw driver's (GPL-2.0: init and 4000x3000 "preview", with
++ * the PDAF values its comments give for "pd off"); 2000x1500 changes the registers that differ
++ * between the vendor's (Qualcomm) 4000x3000 and 2000x1500 settings, its clocks left as they are.
++ * Exposure, gain and frame length registers as MediaTek's driver writes them.
+  */
+ #include <linux/clk.h>
+ #include <linux/delay.h>
+@@ -43,14 +45,6 @@
+ #define OV48B2Q_GAIN_MIN		0x100
+ #define OV48B2Q_GAIN_MAX		0xf80
+ 
+-#define OV48B2Q_WIDTH			4000
+-#define OV48B2Q_HEIGHT			3000
+-/*
+- * A line is 1056 clocks of the sensor's 115.2 MHz timing clock (9.17 us), 6600 pixels at the
+- * CSI-2 pixel rate; 3636 lines make 30 fps.
+- */
+-#define OV48B2Q_HTS			6600
+-#define OV48B2Q_VTS			3636
+ 
+ /* the vendor table without its software reset (written first, then 10 ms) and stream off */
+ static const struct reg_sequence ov48b2q_init_regs[] = {
+@@ -717,6 +711,42 @@ static const struct reg_sequence ov48b2q_4000x3000_regs[] = {
+ 	{ 0x5d0e, 0x02 }, { 0x5d0f, 0x06 }, { 0x5d10, 0x02 }, { 0x3046, 0x01 },
+ };
+ 
++/* after the 4000x3000 table */
++static const struct reg_sequence ov48b2q_2000x1500_regs[] = {
++	{ 0x0350, 0x00 }, { 0x3622, 0x10 }, { 0x368e, 0x00 }, { 0x3703, 0x3a },
++	{ 0x3709, 0x9a }, { 0x370b, 0x6a }, { 0x3714, 0x61 }, { 0x3729, 0x00 },
++	{ 0x372b, 0x76 }, { 0x3808, 0x07 }, { 0x3809, 0xd0 }, { 0x380a, 0x05 },
++	{ 0x380b, 0xdc }, { 0x380c, 0x03 }, { 0x380d, 0x00 }, { 0x3811, 0x04 },
++	{ 0x3813, 0x05 }, { 0x3815, 0x31 }, { 0x3820, 0x07 }, { 0x3821, 0x10 },
++	{ 0x3837, 0x07 }, { 0x383d, 0x04 }, { 0x4002, 0xd3 }, { 0x4016, 0x07 },
++	{ 0x4018, 0x01 }, { 0x4601, 0x64 }, { 0x4643, 0x08 }, { 0x5000, 0xa9 },
++	{ 0x5001, 0x03 }, { 0x5187, 0x88 }, { 0x5188, 0x18 }, { 0x5198, 0x88 },
++	{ 0x5d0e, 0x00 }, { 0x5d0f, 0x02 }, { 0x5d10, 0x04 },
++};
++
++struct ov48b2q_mode {
++	u32 width;
++	u32 height;
++	/* a line in pixels at the CSI-2 pixel rate: 6.25 per clock of the 115.2 MHz timing clock */
++	u32 hts;
++	u32 vts_min;
++	/* 30 fps */
++	u32 vts_def;
++	const struct reg_sequence *regs;
++	unsigned int num_regs;
++};
++
++static const struct ov48b2q_mode ov48b2q_modes[] = {
++	{
++		/* 1056 clocks a line (9.17 us), the vendor's 3636 lines */
++		.width = 4000, .height = 3000, .hts = 6600, .vts_min = 3636, .vts_def = 3636,
++	}, {
++		/* 768 clocks a line (6.67 us), at least the vendor's 1666 lines */
++		.width = 2000, .height = 1500, .hts = 4800, .vts_min = 1666, .vts_def = 5000,
++		.regs = ov48b2q_2000x1500_regs, .num_regs = ARRAY_SIZE(ov48b2q_2000x1500_regs),
++	},
++};
++
+ static const s64 ov48b2q_link_freqs[] = { OV48B2Q_LINK_FREQ };
+ 
+ static const char * const ov48b2q_test_pattern_menu[] = {
+@@ -737,9 +767,12 @@ struct ov48b2q {
+ 	struct v4l2_ctrl_handler ctrl_handler;
+ 	struct regmap *regmap;
+ 
++	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *vblank;
+ 	struct v4l2_ctrl *exposure;
+ 
++	const struct ov48b2q_mode *mode;
++
+ 	struct clk *mclk;
+ 	struct gpio_desc *reset;
+ 	struct regulator_bulk_data supplies[ARRAY_SIZE(ov48b2q_supply_names)];
+@@ -757,7 +790,7 @@ static int ov48b2q_set_ctrl(struct v4l2_ctrl *ctrl)
+ 	int ret = 0;
+ 
+ 	if (ctrl->id == V4L2_CID_VBLANK) {
+-		exposure_max = OV48B2Q_HEIGHT + ctrl->val - OV48B2Q_EXPOSURE_MARGIN;
++		exposure_max = ov48b2q->mode->height + ctrl->val - OV48B2Q_EXPOSURE_MARGIN;
+ 		__v4l2_ctrl_modify_range(ov48b2q->exposure, ov48b2q->exposure->minimum,
+ 					 exposure_max, ov48b2q->exposure->step,
+ 					 min_t(s64, ov48b2q->exposure->val, exposure_max));
+@@ -777,7 +810,7 @@ static int ov48b2q_set_ctrl(struct v4l2_ctrl *ctrl)
+ 		break;
+ 	case V4L2_CID_VBLANK:
+ 		cci_write(ov48b2q->regmap, OV48B2Q_REG_VTS,
+-			  (OV48B2Q_HEIGHT + ctrl->val) & ~1, &ret);
++			  (ov48b2q->mode->height + ctrl->val) & ~1, &ret);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+ 		cci_write(ov48b2q->regmap, OV48B2Q_REG_TEST_PATTERN,
+@@ -799,6 +832,7 @@ static const struct v4l2_ctrl_ops ov48b2q_ctrl_ops = {
+ 
+ static int ov48b2q_init_controls(struct ov48b2q *ov48b2q)
+ {
++	const struct ov48b2q_mode *mode = ov48b2q->mode;
+ 	struct v4l2_ctrl_handler *hdl = &ov48b2q->ctrl_handler;
+ 	struct v4l2_fwnode_device_properties props;
+ 	struct v4l2_ctrl *ctrl;
+@@ -814,21 +848,21 @@ static int ov48b2q_init_controls(struct ov48b2q *ov48b2q)
+ 	v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_PIXEL_RATE, OV48B2Q_PIXEL_RATE,
+ 			  OV48B2Q_PIXEL_RATE, 1, OV48B2Q_PIXEL_RATE);
+ 
+-	ctrl = v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_HBLANK,
+-				 OV48B2Q_HTS - OV48B2Q_WIDTH, OV48B2Q_HTS - OV48B2Q_WIDTH, 1,
+-				 OV48B2Q_HTS - OV48B2Q_WIDTH);
+-	if (ctrl)
+-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++	ov48b2q->hblank = v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_HBLANK,
++					    mode->hts - mode->width, mode->hts - mode->width, 1,
++					    mode->hts - mode->width);
++	if (ov48b2q->hblank)
++		ov48b2q->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+ 	ov48b2q->vblank = v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_VBLANK,
+-					    OV48B2Q_VTS - OV48B2Q_HEIGHT,
+-					    OV48B2Q_VTS_MAX - OV48B2Q_HEIGHT, 2,
+-					    OV48B2Q_VTS - OV48B2Q_HEIGHT);
++					    mode->vts_min - mode->height,
++					    OV48B2Q_VTS_MAX - mode->height, 2,
++					    mode->vts_def - mode->height);
+ 
+ 	ov48b2q->exposure = v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_EXPOSURE,
+ 					      OV48B2Q_EXPOSURE_MIN,
+-					      OV48B2Q_VTS - OV48B2Q_EXPOSURE_MARGIN, 2,
+-					      OV48B2Q_VTS - OV48B2Q_EXPOSURE_MARGIN);
++					      mode->vts_def - OV48B2Q_EXPOSURE_MARGIN, 2,
++					      mode->vts_def - OV48B2Q_EXPOSURE_MARGIN);
+ 
+ 	v4l2_ctrl_new_std(hdl, &ov48b2q_ctrl_ops, V4L2_CID_ANALOGUE_GAIN, OV48B2Q_GAIN_MIN,
+ 			  OV48B2Q_GAIN_MAX, 1, OV48B2Q_GAIN_MIN);
+@@ -851,10 +885,10 @@ static int ov48b2q_init_controls(struct ov48b2q *ov48b2q)
+ 	return 0;
+ }
+ 
+-static void ov48b2q_fill_format(struct v4l2_mbus_framefmt *fmt)
++static void ov48b2q_fill_format(struct v4l2_mbus_framefmt *fmt, const struct ov48b2q_mode *mode)
+ {
+-	fmt->width = OV48B2Q_WIDTH;
+-	fmt->height = OV48B2Q_HEIGHT;
++	fmt->width = mode->width;
++	fmt->height = mode->height;
+ 	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
+ 	fmt->field = V4L2_FIELD_NONE;
+ 	fmt->colorspace = V4L2_COLORSPACE_RAW;
+@@ -880,6 +914,9 @@ static int ov48b2q_enable_streams(struct v4l2_subdev *sd, struct v4l2_subdev_sta
+ 	if (!ret)
+ 		ret = regmap_multi_reg_write(ov48b2q->regmap, ov48b2q_4000x3000_regs,
+ 					     ARRAY_SIZE(ov48b2q_4000x3000_regs));
++	if (!ret && ov48b2q->mode->regs)
++		ret = regmap_multi_reg_write(ov48b2q->regmap, ov48b2q->mode->regs,
++					     ov48b2q->mode->num_regs);
+ 	if (ret) {
+ 		dev_err(ov48b2q->dev, "failed to write the mode: %d\n", ret);
+ 		goto out;
+@@ -950,10 +987,33 @@ static int ov48b2q_power_on(struct device *dev)
+ static int ov48b2q_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
+ 			      struct v4l2_subdev_format *fmt)
+ {
+-	ov48b2q_fill_format(&fmt->format);
++	struct ov48b2q *ov48b2q = to_ov48b2q(sd);
++	const struct ov48b2q_mode *mode;
++	int ret;
++
++	mode = v4l2_find_nearest_size(ov48b2q_modes, ARRAY_SIZE(ov48b2q_modes), width, height,
++				      fmt->format.width, fmt->format.height);
++	ov48b2q_fill_format(&fmt->format, mode);
+ 	*v4l2_subdev_state_get_format(state, fmt->pad) = fmt->format;
+ 
+-	return 0;
++	if (fmt->which != V4L2_SUBDEV_FORMAT_ACTIVE || mode == ov48b2q->mode)
++		return 0;
++
++	if (v4l2_subdev_is_streaming(sd))
++		return -EBUSY;
++
++	/* the state lock is the control handler's */
++	ov48b2q->mode = mode;
++	ret = __v4l2_ctrl_modify_range(ov48b2q->hblank, mode->hts - mode->width,
++				       mode->hts - mode->width, 1, mode->hts - mode->width);
++	if (!ret)
++		ret = __v4l2_ctrl_modify_range(ov48b2q->vblank, mode->vts_min - mode->height,
++					       OV48B2Q_VTS_MAX - mode->height, 2,
++					       mode->vts_def - mode->height);
++	if (!ret)
++		ret = __v4l2_ctrl_s_ctrl(ov48b2q->vblank, mode->vts_def - mode->height);
++
++	return ret;
+ }
+ 
+ static int ov48b2q_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
+@@ -970,13 +1030,13 @@ static int ov48b2q_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_sta
+ static int ov48b2q_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
+ 				   struct v4l2_subdev_frame_size_enum *fse)
+ {
+-	if (fse->index > 0 || fse->code != MEDIA_BUS_FMT_SBGGR10_1X10)
++	if (fse->index >= ARRAY_SIZE(ov48b2q_modes) || fse->code != MEDIA_BUS_FMT_SBGGR10_1X10)
+ 		return -EINVAL;
+ 
+-	fse->min_width = OV48B2Q_WIDTH;
+-	fse->max_width = OV48B2Q_WIDTH;
+-	fse->min_height = OV48B2Q_HEIGHT;
+-	fse->max_height = OV48B2Q_HEIGHT;
++	fse->min_width = ov48b2q_modes[fse->index].width;
++	fse->max_width = fse->min_width;
++	fse->min_height = ov48b2q_modes[fse->index].height;
++	fse->max_height = fse->min_height;
+ 
+ 	return 0;
+ }
+@@ -992,8 +1052,8 @@ static int ov48b2q_get_selection(struct v4l2_subdev *sd, struct v4l2_subdev_stat
+ 		/* the binned output covers the whole 8000x6000 array */
+ 		sel->r.left = 0;
+ 		sel->r.top = 0;
+-		sel->r.width = 2 * OV48B2Q_WIDTH;
+-		sel->r.height = 2 * OV48B2Q_HEIGHT;
++		sel->r.width = 8000;
++		sel->r.height = 6000;
+ 		return 0;
+ 	}
+ 
+@@ -1002,7 +1062,7 @@ static int ov48b2q_get_selection(struct v4l2_subdev *sd, struct v4l2_subdev_stat
+ 
+ static int ov48b2q_init_state(struct v4l2_subdev *sd, struct v4l2_subdev_state *state)
+ {
+-	ov48b2q_fill_format(v4l2_subdev_state_get_format(state, 0));
++	ov48b2q_fill_format(v4l2_subdev_state_get_format(state, 0), &ov48b2q_modes[0]);
+ 
+ 	return 0;
+ }
+@@ -1132,6 +1192,7 @@ static int ov48b2q_probe(struct i2c_client *client)
+ 	if (ret)
+ 		goto power_off;
+ 
++	ov48b2q->mode = &ov48b2q_modes[0];
+ 	ret = ov48b2q_init_controls(ov48b2q);
+ 	if (ret) {
+ 		dev_err(dev, "failed to init controls: %d\n", ret);

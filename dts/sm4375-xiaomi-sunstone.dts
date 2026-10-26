@@ -44,7 +44,7 @@
  *   as a simple-framebuffer, so simpledrm shows the console until msm's KMS takes over.
  * - Cameras: CCI0/CCI1 and CAMSS (TFE530/CSID530 as qcm2290's, CSIPHY 1.2.1; kernel/patches/0018)
  *   with the downstream DT's values. The sensors' cores and analog parts are on a WL2866D (i2c10,
- *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0 0x10, CSIPHY0, 0020),
+ *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0 0x10, CSIPHY0, 0020/0022),
  *   SC202CS 2 MP (cci1 0x36, CSIPHY2, 0021), OV08D10 front (cci1 0x10, CSIPHY3).
  *
  * clk_ignore_unused and pd_ignore_unused (bootargs) keep GCC/RPM from switching off what ABL left

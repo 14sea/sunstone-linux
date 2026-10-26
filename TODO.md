@@ -355,7 +355,9 @@
         PipeWire / GNOME 相機（Snapshot，用户確認豎屏方向正確；橫屏差 90°，是 Snapshot 不管屏幕旋轉）。
   - [x] 主攝 OV48B2Q（cci0 主機 0 的 0x10，CSIPHY0，4 lane，MCLK0 24 MHz，復位 GPIO34，LDO1 + LDO3）：本地補丁 0020，
         MTK ov48b2q_mipi_raw 的表，一個模式 4000x3000 30 fps（軟件 ISP 15 fps）；rotation 270。用户確認方向正確、有點糊。
-  - [ ] 主攝：小一點的模式（2000x1500 或 1080p，軟件 ISP 跟得上 30 fps）；對焦馬達沒應答（`cam_vaf_ldo` 原廠是固定
+  - [x] 主攝 2000x1500（0022）：原廠 CamX 模組數據（`com.qti.sensormodule.*.bin`，數值在去重的數值池裡）裡 4000x3000 和
+        2000x1500 不同的寄存器，時鐘照 MTK 的表；30 fps（最高 90），軟件 ISP 1920x1440 30 fps。用户：流暢多了，照片能存。
+  - [ ] 主攝：對焦馬達沒應答（`cam_vaf_ldo` 原廠是固定
         穩壓器，GPIO50 `CAM_VAF0`），所以只有固定焦距；EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報
