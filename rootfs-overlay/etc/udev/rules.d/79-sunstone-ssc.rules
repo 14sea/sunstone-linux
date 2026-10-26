@@ -1,0 +1,8 @@
+# sunstone: the SSC's sensors (ADSP, through hexagonrpcd and libssc) for iio-sensor-proxy, before
+# its 80-iio-sensor-proxy.rules (Ubuntu's 3.8 knows no fastrpc devices; upstream's newer rules
+# enable only ssc-light and ssc-compass, ssc-proximity is left out here too: the desktop has no use
+# for it). The mount matrix turns the SSC's Android axes (upright: y +g, face up: z +g) into
+# iio-sensor-proxy's (upright: y < 0, face up: z > 0, left edge up: x > 0): x and y negated. The
+# postmarketOS SSC devices negate z too, which reports face down for face up.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-light ssc-compass", \
+	ENV{ACCEL_MOUNT_MATRIX}="-1, 0, 0; 0, -1, 0; 0, 0, 1"

@@ -172,6 +172,8 @@ cp -a --no-preserve=ownership "$SRC/rootfs-overlay/." "$R/"
 (cd "$SRC/rootfs-overlay" && find . -mindepth 1) | sed "s|^\.|$R|" | xargs chown -h 0:0
 # hexagonrpcd with writes for the sensors PD, which the overlay's hexagonrpcd.service.d runs
 bash "$SRC/tools/ubuntu/add-hexagonrpcd.sh" "$R" "$SRC"
+# libssc and iio-sensor-proxy with SSC support, for the desktop's sensors (overlay: udev rule, unit drop-in)
+bash "$SRC/tools/ubuntu/add-ssc.sh" "$R"
 
 # not a first boot (that would apply the presets to every unit)
 [ -s "$R/etc/machine-id" ] || chroot "$R" systemd-machine-id-setup
