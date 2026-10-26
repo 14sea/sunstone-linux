@@ -219,8 +219,8 @@
       暫存，AP 發往手機的語音類幀失敗、降到 CCK 5.5 Mbit/s，長幀塞不進藍牙事件的空檔（證據見 LOG）。修法（用户選的）：
       有藍牙連接時才開 Wi-Fi 省電 —— `sunstone-wifi-btcoex`，由 `80-sunstone-btcoex.rules`（`hciN:句柄` 增刪）和
       `80-sunstone-wlan0.rules` 調用；NetworkManager `wifi.powersave=1`（不管）。驗證：斷開/重連時省電跟着關/開，連着
-      鼠標和鍵盤時 EF 大包和 Wi-Fi ssh 正常，重啟後同樣。代價：連着藍牙時 Wi-Fi 延遲約 50 ms。測試主機的 `ef-mon.sh`
-      還在記錄（logs/ef-mon.log）。
+      鼠標和鍵盤時 EF 大包和 Wi-Fi ssh 正常，重啟後同樣。代價：連着藍牙時 Wi-Fi 延遲約 50 ms。測試主機上的
+      監視腳本 `ef-mon.sh` 修好後記錄 7 次都正常（另 1 次是重啟），已停用刪除，日誌留在 logs/ef-mon.log。
 - [ ] GNOME 鎖屏（用户 2026-10-25 想要「按一下熄屏、再按一下亮屏並顯示鎖屏」，先擱置，現在能熄屏就夠）：gnome-shell 只在
       GDM 存在時啟用 ScreenShield（解鎖靠 GDM 驗證密碼；沒有 GDM 時 org.gnome.ScreenSaver 是空接口）。方案：裝 gdm3，由它
       自動登錄 phone 啟動 GNOME（代替 gnome.service，仍手動 `systemctl start gdm`，開機文本模式；GDM 佔 tty1，停止後要
@@ -389,6 +389,18 @@
       從 udisks 隱藏。FAT/exFAT 的 U 盤沒實測。
 - [x] USB 3.0：做不了。官方規格是 USB Type-C 2.0；下游 DT 的 QMP USB3/DP 組合 PHY（0x1630000）是 Blair 參考板的，
       其初始化序列和主線 `sm8250_usb3dpphy_cfg` 的表 127/144 項相同（13 項通道調參不同）。
+- [x] **GNOME Snapshot 橫屏**（2026-10-26，用户：「軟件很好」）：Snapshot 50.0 和上游 main 都不管屏幕旋轉（預覽只按
+      攝像頭安裝角度的 `image-orientation` 標籤轉正，橫屏時是側着的豎條；照片按傳感器原樣存，1920x1080、無 EXIF 方向）。
+      `tools/ubuntu/add-snapshot.sh` + `snapshot-sunstone.patch`：aperture 在攝像頭源 bin 的出口改寫標籤 = 傳感器方向 +
+      mutter `DisplayConfig` 主顯示器的旋轉（前攝取反，它的預覽在後面鏡像），變化時在下一幀前補發；拍照分支加
+      `videoflip`，按快門時按同一個方向設好（camerabin 不把標籤傳給拍照分支：第一版用 `auto`，照片沒轉），之後去掉方向
+      標籤。裝在 /usr/local（Ubuntu 的包保留），在手機上編譯約 12 min。用户：預覽各方向都正，豎屏照片 1080x1920、
+      橫屏 1920x1080，都是正的。沒做：錄像（標籤同樣不一定到錄像分支，沒試）。
+- [ ] iio-sensor-proxy 開機時有一次沒有加速度計（2026-10-26 boot-174，`HasAccelerometer` false，GNOME 不能自動旋轉）：
+      drop-in 等 QRTR 服務 400 的 ExecStartPre 過了，但它還是比 SSC 的傳感器早；手動重啟服務後正常。要更可靠的等待條件。
+- [x] 主攝的「咔」聲（2026-10-26，用户：不影響壽命就不修）：切到主攝和離開主攝時各一聲，開時較響。聽音對比：鏡頭目標 0
+      （不移動）也響、只給馬達上電（不開傳感器）也響；電源開着時手動讓 DW9800 休眠、喚醒、切模式都不響 → 來自馬達電源
+      cam_vaf 通斷的瞬間，不是鏡頭移動。可選的修法（cam_vaf 常開、空閒時只讓芯片休眠，連帶 cam_vio 常開）沒做。
 - [ ] OTG 剩下的：PD 關着（充電器按 Rp 給 5 V；要快充或數據角色交換再開）；角色切換時 `dwc3-qcom: remote wakeup
       not configured`（沒配 wakeup-source）；udev 的 `mtp-probe` 不存在（libmtp 規則，無害）；接 OTG 時手機用電池
       給外設供電，長時間接大功率設備會耗盡電池。
