@@ -1,0 +1,64 @@
+media: i2c: dw9719: dw9800k: wait while the lens moves; resume to the focus
+
+The DW9800 ignores a position written while the lens still moves to the
+previous one (its status register 0x05, bit 0): the resume and suspend
+steps, one every millisecond, stopped wherever a write was dropped (368,
+384, 416 for 480). Wait for it before each write.
+
+The resume steps stop one step short of the focus (val < current_focus):
+write the focus itself after them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+index a10482816..a6a50e12a 100644
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -10,6 +10,7 @@
+ 
+ #include <linux/delay.h>
+ #include <linux/i2c.h>
++#include <linux/iopoll.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/types.h>
+@@ -71,6 +72,9 @@
+ #define DW9800K_DEFAULT_SAC		1
+ #define DW9800K_MODE_SAC_SHIFT		6
+ #define DW9800K_DEFAULT_VCM_FREQ		0x10
++/* set while the lens moves to a new position: a position written then is ignored */
++#define DW9800K_STATUS			CCI_REG8(5)
++#define DW9800K_STATUS_BUSY		BIT(0)
+ 
+ #define to_dw9719_device(x) container_of(x, struct dw9719_device, sd)
+ 
+@@ -228,6 +232,17 @@ static int dw9719_t_focus_abs(struct dw9719_device *dw9719, s32 value)
+ {
+ 	u32 reg = dw9719->model == DW9718S ? DW9718S_VCM_CURRENT
+ 					   : DW9719_VCM_CURRENT;
++	u64 status;
++	int ret, err;
++
++	if (dw9719->model == DW9800K) {
++		ret = read_poll_timeout(cci_read, err,
++					err || !(status & DW9800K_STATUS_BUSY), 200, 50000,
++					false, dw9719->regmap, DW9800K_STATUS, &status, NULL);
++		if (ret || err)
++			return ret ?: err;
++	}
++
+ 	return cci_write(dw9719->regmap, reg, value, NULL);
+ }
+ 
+@@ -299,6 +314,11 @@ static int dw9719_resume(struct device *dev)
+ 		usleep_range(DW9719_CTRL_DELAY_US, DW9719_CTRL_DELAY_US + 10);
+ 	}
+ 
++	/* the steps stop short of it */
++	ret = dw9719_t_focus_abs(dw9719, current_focus);
++	if (ret)
++		goto err_power_down;
++
+ 	return 0;
+ 
+ err_power_down:

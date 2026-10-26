@@ -1,0 +1,21 @@
+leds: flash: lm3601x: read the enable register from the chip
+
+The chip returns to standby by itself at the flash timeout, but the
+enable register was cached: flash_strobe kept reading 1 after the flash
+had ended. Make it volatile.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/leds/flash/leds-lm3601x.c b/drivers/leds/flash/leds-lm3601x.c
+index 62d65b554..e9f7871ed 100644
+--- a/drivers/leds/flash/leds-lm3601x.c
++++ b/drivers/leds/flash/leds-lm3601x.c
+@@ -111,6 +111,8 @@ static const struct reg_default lm3601x_regmap_defs[] = {
+ static bool lm3601x_volatile_reg(struct device *dev, unsigned int reg)
+ {
+ 	switch (reg) {
++	/* the chip clears the mode at the flash timeout */
++	case LM3601X_ENABLE_REG:
+ 	case LM3601X_FLAGS_REG:
+ 		return true;
+ 	default:

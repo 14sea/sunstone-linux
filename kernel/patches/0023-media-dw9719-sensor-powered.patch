@@ -1,0 +1,51 @@
+media: i2c: dw9719: leave the lens off while open if a sensor powers it
+
+The lens is powered while its subdev is open. libcamera keeps it open as
+long as its camera manager lives (PipeWire's camera plugin: the whole
+session), so the coil stays driven, at the last position, with the
+camera idle: tens of mA.
+
+When a sensor has linked itself to the lens (a runtime PM device link,
+the lens its supplier), it powers the lens while it streams: then an open
+file handle does not.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+index 3b7ba88fd..a10482816 100644
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -306,13 +306,33 @@ static int dw9719_resume(struct device *dev)
+ 	return ret;
+ }
+ 
++/*
++ * A sensor that links itself to the lens (a runtime PM device link, the lens its supplier)
++ * powers it while it streams: then an open file handle does not, so a client that keeps the
++ * lens open while the camera is idle (libcamera does) does not keep the coil driven.
++ */
++static bool dw9719_powered_by_sensor(struct dw9719_device *dw9719)
++{
++	return !list_empty(&dw9719->dev->links.consumers);
++}
++
+ static int dw9719_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+ {
++	struct dw9719_device *dw9719 = to_dw9719_device(sd);
++
++	if (dw9719_powered_by_sensor(dw9719))
++		return 0;
++
+ 	return pm_runtime_resume_and_get(sd->dev);
+ }
+ 
+ static int dw9719_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+ {
++	struct dw9719_device *dw9719 = to_dw9719_device(sd);
++
++	if (dw9719_powered_by_sensor(dw9719))
++		return 0;
++
+ 	pm_runtime_put_autosuspend(sd->dev);
+ 
+ 	return 0;

@@ -1,0 +1,79 @@
+media: i2c: ov48b2q: power the lens with the sensor
+
+A runtime PM device link to the lens-focus device, the lens its supplier:
+the AF actuator is powered, and moved to its focus position, while the
+sensor is (streaming), and off otherwise, whoever keeps its subdev open.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/ov48b2q.c b/drivers/media/i2c/ov48b2q.c
+index a024eb67e..93e9cd32d 100644
+--- a/drivers/media/i2c/ov48b2q.c
++++ b/drivers/media/i2c/ov48b2q.c
+@@ -776,6 +776,8 @@ struct ov48b2q {
+ 	struct clk *mclk;
+ 	struct gpio_desc *reset;
+ 	struct regulator_bulk_data supplies[ARRAY_SIZE(ov48b2q_supply_names)];
++
++	struct device_link *lens_link;
+ };
+ 
+ static inline struct ov48b2q *to_ov48b2q(struct v4l2_subdev *sd)
+@@ -1125,6 +1127,31 @@ static int ov48b2q_check_hwcfg(struct ov48b2q *ov48b2q)
+ 	return ret;
+ }
+ 
++/*
++ * The AF actuator (lens-focus) is powered while the sensor is: a runtime PM device link, the
++ * lens its supplier. Its driver then leaves it off while only open (dw9719).
++ */
++static void ov48b2q_link_lens(struct ov48b2q *ov48b2q)
++{
++	struct fwnode_handle *fwnode;
++	struct device *lens;
++
++	fwnode = fwnode_find_reference(dev_fwnode(ov48b2q->dev), "lens-focus", 0);
++	if (IS_ERR(fwnode))
++		return;
++
++	lens = bus_find_device_by_fwnode(&i2c_bus_type, fwnode);
++	fwnode_handle_put(fwnode);
++	if (!lens)
++		return;
++
++	ov48b2q->lens_link = device_link_add(ov48b2q->dev, lens,
++					     DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME);
++	if (!ov48b2q->lens_link)
++		dev_warn(ov48b2q->dev, "failed to link the lens %s\n", dev_name(lens));
++	put_device(lens);
++}
++
+ static void ov48b2q_remove(struct i2c_client *client)
+ {
+ 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+@@ -1139,6 +1166,8 @@ static void ov48b2q_remove(struct i2c_client *client)
+ 		ov48b2q_power_off(ov48b2q->dev);
+ 		pm_runtime_set_suspended(ov48b2q->dev);
+ 	}
++	if (ov48b2q->lens_link)
++		device_link_del(ov48b2q->lens_link);
+ }
+ 
+ static int ov48b2q_probe(struct i2c_client *client)
+@@ -1213,6 +1242,7 @@ static int ov48b2q_probe(struct i2c_client *client)
+ 	if (ret)
+ 		goto cleanup_entity;
+ 
++	ov48b2q_link_lens(ov48b2q);
+ 	pm_runtime_set_active(dev);
+ 	pm_runtime_enable(dev);
+ 
+@@ -1229,6 +1259,8 @@ static int ov48b2q_probe(struct i2c_client *client)
+ cleanup_subdev:
+ 	pm_runtime_disable(dev);
+ 	pm_runtime_set_suspended(dev);
++	if (ov48b2q->lens_link)
++		device_link_del(ov48b2q->lens_link);
+ 	v4l2_subdev_cleanup(&ov48b2q->sd);
+ cleanup_entity:
+ 	media_entity_cleanup(&ov48b2q->sd.entity);

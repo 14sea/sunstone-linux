@@ -1,0 +1,190 @@
+leds: flash: lm3601x: switch an I/O supply around register accesses
+
+An optional vio supply, on only while the registers are read or written:
+on a board whose I2C bus has its pull-ups on a switched supply shared
+with camera sensors. The chip itself is on VIN and keeps its state (the
+torch stays on) without it.
+
+The register cache starts from the chip after the reset instead of the
+LM36010's defaults: compatible parts (Kinetic KTD2691) reset to others.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/leds/flash/leds-lm3601x.c b/drivers/leds/flash/leds-lm3601x.c
+index 8d00510c8..62d65b554 100644
+--- a/drivers/leds/flash/leds-lm3601x.c
++++ b/drivers/leds/flash/leds-lm3601x.c
+@@ -9,6 +9,7 @@
+ #include <linux/led-class-flash.h>
+ #include <linux/module.h>
+ #include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
+ #include <linux/slab.h>
+ 
+ #define LM3601X_LED_IR		0x0
+@@ -74,6 +75,7 @@ enum lm3601x_type {
+  * @fled_cdev: flash LED class device pointer
+  * @client: Pointer to the I2C client
+  * @regmap: Devices register map
++ * @vio: the I2C bus's I/O supply, on only around register accesses
+  * @lock: Lock for reading/writing the device
+  * @flash_timeout: the timeout for the flash
+  * @last_flag: last known flags register value
+@@ -86,6 +88,7 @@ struct lm3601x_led {
+ 	struct led_classdev_flash fled_cdev;
+ 	struct i2c_client *client;
+ 	struct regmap *regmap;
++	struct regulator *vio;
+ 	struct mutex lock;
+ 
+ 	unsigned int flash_timeout;
+@@ -131,6 +134,20 @@ static struct lm3601x_led *fled_cdev_to_led(struct led_classdev_flash *fled_cdev
+ 	return container_of(fled_cdev, struct lm3601x_led, fled_cdev);
+ }
+ 
++/*
++ * The bus's pull-ups can be on a switched supply (vio), shared with camera sensors: on only
++ * while the registers are accessed. The chip itself is on VIN and keeps its state.
++ */
++static int lm3601x_vio_on(struct lm3601x_led *led)
++{
++	return regulator_enable(led->vio);
++}
++
++static void lm3601x_vio_off(struct lm3601x_led *led)
++{
++	regulator_disable(led->vio);
++}
++
+ static int lm3601x_read_faults(struct lm3601x_led *led)
+ {
+ 	int flags_val;
+@@ -175,6 +192,10 @@ static int lm3601x_brightness_set(struct led_classdev *cdev,
+ 
+ 	mutex_lock(&led->lock);
+ 
++	ret = lm3601x_vio_on(led);
++	if (ret)
++		goto unlock;
++
+ 	ret = lm3601x_read_faults(led);
+ 	if (ret < 0)
+ 		goto out;
+@@ -198,6 +219,8 @@ static int lm3601x_brightness_set(struct led_classdev *cdev,
+ 				LM3601X_MODE_TORCH | LM3601X_MODE_IR_DRV,
+ 				led_mode_val);
+ out:
++	lm3601x_vio_off(led);
++unlock:
+ 	mutex_unlock(&led->lock);
+ 	return ret;
+ }
+@@ -212,6 +235,10 @@ static int lm3601x_strobe_set(struct led_classdev_flash *fled_cdev,
+ 
+ 	mutex_lock(&led->lock);
+ 
++	ret = lm3601x_vio_on(led);
++	if (ret)
++		goto unlock;
++
+ 	ret = regmap_read(led->regmap, LM3601X_CFG_REG, &current_timeout);
+ 	if (ret < 0)
+ 		goto out;
+@@ -235,6 +262,8 @@ static int lm3601x_strobe_set(struct led_classdev_flash *fled_cdev,
+ 
+ 	ret = lm3601x_read_faults(led);
+ out:
++	lm3601x_vio_off(led);
++unlock:
+ 	mutex_unlock(&led->lock);
+ 	return ret;
+ }
+@@ -247,6 +276,10 @@ static int lm3601x_flash_brightness_set(struct led_classdev_flash *fled_cdev,
+ 	int ret;
+ 
+ 	mutex_lock(&led->lock);
++	ret = lm3601x_vio_on(led);
++	if (ret)
++		goto unlock;
++
+ 	ret = lm3601x_read_faults(led);
+ 	if (ret < 0)
+ 		goto out;
+@@ -261,6 +294,8 @@ static int lm3601x_flash_brightness_set(struct led_classdev_flash *fled_cdev,
+ 
+ 	ret = regmap_write(led->regmap, LM3601X_LED_FLASH_REG, brightness_val);
+ out:
++	lm3601x_vio_off(led);
++unlock:
+ 	mutex_unlock(&led->lock);
+ 	return ret;
+ }
+@@ -287,6 +322,10 @@ static int lm3601x_strobe_get(struct led_classdev_flash *fled_cdev, bool *state)
+ 
+ 	mutex_lock(&led->lock);
+ 
++	ret = lm3601x_vio_on(led);
++	if (ret)
++		goto unlock;
++
+ 	ret = regmap_read(led->regmap, LM3601X_ENABLE_REG, &strobe_state);
+ 	if (ret < 0)
+ 		goto out;
+@@ -294,6 +333,8 @@ static int lm3601x_strobe_get(struct led_classdev_flash *fled_cdev, bool *state)
+ 	*state = strobe_state & LM3601X_MODE_STROBE;
+ 
+ out:
++	lm3601x_vio_off(led);
++unlock:
+ 	mutex_unlock(&led->lock);
+ 	return ret;
+ }
+@@ -303,7 +344,12 @@ static int lm3601x_flash_fault_get(struct led_classdev_flash *fled_cdev,
+ {
+ 	struct lm3601x_led *led = fled_cdev_to_led(fled_cdev);
+ 
+-	lm3601x_read_faults(led);
++	mutex_lock(&led->lock);
++	if (!lm3601x_vio_on(led)) {
++		lm3601x_read_faults(led);
++		lm3601x_vio_off(led);
++	}
++	mutex_unlock(&led->lock);
+ 
+ 	*fault = led->last_flag;
+ 
+@@ -443,9 +489,19 @@ static int lm3601x_probe(struct i2c_client *client)
+ 		return ret;
+ 	}
+ 
++	led->vio = devm_regulator_get(&client->dev, "vio");
++	if (IS_ERR(led->vio))
++		return dev_err_probe(&client->dev, PTR_ERR(led->vio), "no vio supply\n");
++
++	ret = lm3601x_vio_on(led);
++	if (ret)
++		return ret;
+ 	ret = regmap_write(led->regmap, LM3601X_DEV_ID_REG, LM3601X_SW_RESET);
+ 	if (ret)
+ 		dev_warn(&client->dev, "Failed to reset the LED controller\n");
++	/* the reset values are the chip's: read them from it, not the LM36010's defaults */
++	regcache_drop_region(led->regmap, 0, LM3601X_DEV_ID_REG);
++	lm3601x_vio_off(led);
+ 
+ 	mutex_init(&led->lock);
+ 
+@@ -457,8 +513,12 @@ static void lm3601x_remove(struct i2c_client *client)
+ 	struct lm3601x_led *led = i2c_get_clientdata(client);
+ 	int ret;
+ 
+-	ret = regmap_update_bits(led->regmap, LM3601X_ENABLE_REG,
+-				 LM3601X_ENABLE_MASK, LM3601X_MODE_STANDBY);
++	ret = lm3601x_vio_on(led);
++	if (!ret) {
++		ret = regmap_update_bits(led->regmap, LM3601X_ENABLE_REG,
++					 LM3601X_ENABLE_MASK, LM3601X_MODE_STANDBY);
++		lm3601x_vio_off(led);
++	}
+ 	if (ret)
+ 		dev_warn(&client->dev,
+ 			 "Failed to put into standby (%pe)\n", ERR_PTR(ret));

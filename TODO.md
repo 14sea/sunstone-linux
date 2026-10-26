@@ -360,13 +360,16 @@
   - [x] 主攝對焦馬達：DW9800W（cci0 主機 0 的 0x0c，寄存器 0 讀出 0xf2），主線 dw9719 驅動的 `dongwoon,dw9800k`（原廠
         CamX 模組數據的初始化相同）；電源 GPIO50（`cam_vaf`，接在 cam_vio 後面：總線上拉在 cam_vio 上）。軟件 ISP 沒有
         自動對焦：udev（`71-sunstone-camera-focus.rules`）把位置定在 480（遠景最清晰在 464–480，350 以下鏡頭不動）。
-        用户：遠處清楚了一些。
+        用户：遠處清楚了一些。馬達只在主攝出流時通電（0023/0024：PipeWire 一直開着它的節點，原來線圈一直通電、
+        cam_vio 常開）；DW9800 在鏡頭移動時丟掉新位置（0026：等狀態寄存器 0x05 的忙位）。
   - [ ] 主攝：自動對焦（libcamera 軟件 IPA 沒有 AF 算法）；EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報
         SBGGR10，軟件 ISP 出灰度畫面。用户確認方向正確、黑白。
-  - [ ] 閃光燈（原廠 `qcom,camera-flash`，cci0 主機 1，GPIO38/51；CamX 模組數據 `ktd2691`）。cci0 主機 1 的 0x64 只有
-        8 位寄存器、不用 WL2866D 供電：大概就是它。
+  - [x] 閃光燈：KTD2691（cci0 主機 1 的 0x64；CamX 模組數據 `ktd2691`），軟件上是 LM36011（ID 寄存器 0x06 = 0x08，
+        模式 0x01：0 關、2 手電筒、3 閃光），主線 lm3601x + 0025（vio = cam_vio 只在讀寫寄存器時開）+ 0027（模式寄存器
+        volatile）；`/sys/class/leds/white:flash`，手電筒 36 級（最大 106 mA），閃光 1.0 A、0.4 s。用户：三步都正常。
+        GPIO51（原廠 CUSTOM_GPIO2，大概是 STROBE 腳）沒用。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
 
 ## 以後

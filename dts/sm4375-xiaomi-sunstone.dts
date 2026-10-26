@@ -57,6 +57,7 @@
 #include <dt-bindings/clock/qcom,sm6375-dispcc.h>
 #include <dt-bindings/clock/qcom,sm6375-gpucc.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/soc/qcom,apr.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <dt-bindings/sound/qcom,q6asm.h>
@@ -1272,7 +1273,10 @@
 			/*
 			 * the main camera's AF actuator, Dongwoon DW9800W (stock CamX module data
 			 * "dw9800w"; register 0 reads 0xf2): its init there is DW9800K's (control 0x02,
-			 * mode 0x40 = SAC 1), the VCM frequency register left at its 0x60
+			 * mode 0x40 = SAC 1), the VCM frequency register left at its 0x60. Powered
+			 * while the main camera streams (its runtime PM link, local patches 0023/0024),
+			 * not while libcamera only keeps it open; a position written while the lens
+			 * still moves is dropped (0026)
 			 */
 			main_vcm: actuator@c {
 				compatible = "dongwoon,dw9800k";
@@ -1321,6 +1325,31 @@
 			clock-frequency = <400000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			/*
+			 * the rear flash LED's driver, Kinetic KTD2691 (downstream qcom,camera-flash on
+			 * cci0 master 1 with cam_vio; "ktd2691" at 0xc8 in the stock CamX module data):
+			 * an LM36011 to software, its device id register (0x06) 0x08 as LM36011's and
+			 * the vendor's mode values (0x01: 0 off, 2 torch, 3 flash). Currents as the
+			 * vendor's: flash 0x56 (1.0 A), torch 0x23 (106 mA). The bus pull-ups are on
+			 * cam_vio (vio, local patch 0025), the chip on VIN keeps its state without it.
+			 */
+			led-controller@64 {
+				compatible = "ti,lm36011";
+				reg = <0x64>;
+				vio-supply = <&cam_vio>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				led@1 {
+					reg = <1>;
+					function = LED_FUNCTION_FLASH;
+					color = <LED_COLOR_ID_WHITE>;
+					led-max-microamp = <106200>;
+					flash-max-microamp = <1014800>;
+					flash-max-timeout-us = <400000>;
+				};
+			};
 		};
 	};
 
