@@ -18,7 +18,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Wi-Fi | WCN3988 over ath10k, the modem (MPSS) running its firmware; Xiaomi's board data from `modem_a` |
 | Bluetooth | WCN3988 on its UART, Xiaomi's firmware from `bluetooth_a`; classic and LE keyboards and mice tested |
 | Battery | SM5602 fuel gauge (0003), SC89890H charger (0004), charge limit 4.1 V for life on the charger |
-| USB | NCM + ACM gadget (ssh and a serial console from the host) |
+| USB | NCM + ACM gadget (ssh and a serial console from the host); OTG host through the HUSB311 Type-C port controller (TCPM, dual role), VBUS from the charger's boost (0028); USB 2.0 |
 | Audio | speaker (LPASS, WCD9370 codec, SIA8159 amplifier: 0011-0016), main and second microphones, headphones with jack detection; ALSA UCM for PipeWire and GNOME |
 | Cameras | 48 MP OV48B2Q main (4000x3000 and 2000x1500: 0020, 0022) with its DW9800 AF actuator held at the far focus, 8 MP OV08D10 front, 2 MP SC202CS (monochrome depth: 0021); CAMSS for SM6375 (0018), WL2866D camera LDOs (0017); libcamera's software ISP, GNOME Snapshot; rear flash LED (KTD2691 as an LM36011: 0025, 0027) |
 | Cellular | mobile data through IPA v4.11 and ModemManager (tested with an IoT SIM) |

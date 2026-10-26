@@ -1,0 +1,51 @@
+power: supply: bq25890: SC89890H: disable charging for the boost
+
+The Southchip SC89890H does not start its boost with only OTG_CONFIG
+set: with CHG_CONFIG still 1, VBUS_STAT stays 000 and VBUS reads 0, no
+boost fault. With CHG_CONFIG cleared it reports OTG (VBUS_STAT 111) at
+once. Clear CHG_CONFIG before enabling the boost and set it again after
+disabling it, for this chip only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index 787d83355..a103c6e4e 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -126,6 +126,7 @@ struct bq25890_device {
+ 	bool skip_reset;
+ 	bool read_back_init_data;
+ 	bool force_hiz;
++	bool otg_needs_chg_off;
+ 	u32 pump_express_vbus_max;
+ 	u32 iinlim_percentage;
+ 	enum bq25890_chip_version chip_version;
+@@ -1049,7 +1050,20 @@ static int bq25890_set_otg_cfg(struct bq25890_device *bq, u8 val)
+ {
+ 	int ret;
+ 
++	/* the SC89890H only starts its boost with charging disabled */
++	if (bq->otg_needs_chg_off && val) {
++		ret = bq25890_field_write(bq, F_CHG_CFG, 0);
++		if (ret < 0)
++			goto err;
++	}
++
+ 	ret = bq25890_field_write(bq, F_OTG_CFG, val);
++	if (ret < 0)
++		goto err;
++
++	if (bq->otg_needs_chg_off && !val)
++		ret = bq25890_field_write(bq, F_CHG_CFG, 1);
++err:
+ 	if (ret < 0)
+ 		dev_err(bq->dev, "Error switching to boost/charger mode: %d\n", ret);
+ 
+@@ -1329,6 +1343,7 @@ static int bq25890_get_chip_version(struct bq25890_device *bq)
+ 	case SC89890H_ID:
+ 		dev_info(bq->dev, "SC89890H, handled as BQ25890\n");
+ 		bq->chip_version = BQ25890;
++		bq->otg_needs_chg_off = true;
+ 		break;
+ 
+ 	default:

@@ -7,7 +7,9 @@
  * (2026-10-20) and the downstream DT. Until 2026-10-25 this was a chain of one tree per milestone
  * (m1 -> ... -> m6 -> m6d, each including the previous one); git tag dts-milestones has them.
  *
- * - USB: HS PHY on RPM regulators, dwc3 as a peripheral (the NCM gadget carries ssh).
+ * - USB: HS PHY on RPM regulators, dwc3 dual role (flattened glue), the device role by default
+ *   (the NCM gadget carries ssh); the roles and VBUS (the charger's boost) from the HUSB311 Type-C
+ *   port controller on i2c10.
  * - UFS: ufshc@4804000 with one lane and a QMP v4 PHY that downstream drives as
  *   "qcom,ufs-phy-qmp-v4-yupik" (SC7280 tables, kernel/patches/0001 adds the one-lane sm6375
  *   entry). Inline crypto (ICE) is left out. No interconnect driver for sm6375 yet: bus votes stay
@@ -69,6 +71,9 @@
 
 /* the PM6125 PON is the one in use (downstream disables PMK8350's), and the labels collide */
 /delete-node/ &pmk8350_pon;
+
+/* the dtsi's legacy dwc3 glue (qcom,dwc3 + a dwc3 child) is replaced by the flattened one below */
+/delete-node/ &usb_1;
 
 / {
 	model = "Xiaomi Redmi Note 12 5G (sunstone)";
@@ -864,6 +869,11 @@
 		ti,boost-voltage = <5000000>;
 		ti,boost-max-current = <1650000>;
 		ti,thermal-regulation-threshold = <120>;
+
+		/* the boost (OTG_CONFIG) as VBUS for the Type-C source role, switched by the HUSB311's TCPM */
+		usb_otg_vbus: usb-otg-vbus {
+			regulator-name = "usb_otg_vbus";
+		};
 	};
 
 	fuel-gauge@71 {
@@ -939,6 +949,39 @@
 		reg = <0x29>;
 		sound-name-prefix = "Speaker";
 		#sound-dai-cells = <0>;
+	};
+
+	/*
+	 * The Type-C port controller: downstream and the live DT call it richtek,rt1711h, but the chip
+	 * reads VID 0x2e99 / PID 0x0311, a Hynetek HUSB311 (register compatible). Alert on GPIO59
+	 * (active low, pulled up). It drives the USB role switch and, for the source role, VBUS from the
+	 * charger's boost. Dual role, Try.SNK (on a charger or a host it stays a sink). PD is off: a
+	 * charger still gives 5 V by its Rp, and the phone as a source advertises 1.5 A by Rp (the boost
+	 * is limited to 1.65 A).
+	 */
+	typec@4e {
+		compatible = "hynetek,husb311", "richtek,rt1711h";
+		reg = <0x4e>;
+		interrupts-extended = <&tlmm 59 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-0 = <&typec_int_default>;
+		pinctrl-names = "default";
+		vbus-supply = <&usb_otg_vbus>;
+
+		connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			data-role = "dual";
+			power-role = "dual";
+			try-power-role = "sink";
+			pd-disable;
+			typec-power-opmode = "1.5A";
+
+			port {
+				typec_hs: endpoint {
+					remote-endpoint = <&usb_1_hs>;
+				};
+			};
+		};
 	};
 };
 
@@ -1906,6 +1949,14 @@
 		bias-pull-up;
 	};
 
+	typec_int_default: typec-int-default-state {
+		pins = "gpio59";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+		input-enable;
+	};
+
 	chg_int_default: chg-int-default-state {
 		pins = "gpio48";
 		function = "gpio";
@@ -1990,12 +2041,77 @@
 	};
 };
 
-&usb_1 {
-	status = "okay";
-};
+/*
+ * USB as the flattened qcom,snps-dwc3 node (the dtsi's usb@4ef8800 glue + usb@4e00000 core in one):
+ * its glue follows the role switch and sets the QSCRATCH VBUS override for the device role, which
+ * the legacy glue only does for dr_mode peripheral or through extcon. Dual role with the device
+ * role as default, so the NCM gadget comes up as before (UDC 4e00000.usb); the role can be set by
+ * hand in /sys/class/usb_role; the HUSB311 on i2c10 (TCPM) drives it. HS only, as in the dtsi.
+ */
+&soc {
+	usb_1: usb@4e00000 {
+		compatible = "qcom,sm6375-dwc3", "qcom,snps-dwc3";
+		reg = <0x0 0x04e00000 0x0 0xfc100>;
 
-&usb_1_dwc3 {
-	dr_mode = "peripheral";
+		clocks = <&gcc GCC_CFG_NOC_USB3_PRIM_AXI_CLK>,
+			 <&gcc GCC_USB30_PRIM_MASTER_CLK>,
+			 <&gcc GCC_SYS_NOC_USB3_PRIM_AXI_CLK>,
+			 <&gcc GCC_USB30_PRIM_SLEEP_CLK>,
+			 <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK>,
+			 <&gcc GCC_USB3_PRIM_CLKREF_CLK>;
+		clock-names = "cfg_noc",
+			      "core",
+			      "iface",
+			      "sleep",
+			      "mock_utmi",
+			      "xo";
+
+		assigned-clocks = <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK>,
+				  <&gcc GCC_USB30_PRIM_MASTER_CLK>;
+		assigned-clock-rates = <19200000>, <133333333>;
+
+		interrupts-extended = <&intc GIC_SPI 255 IRQ_TYPE_LEVEL_HIGH>,
+				      <&intc GIC_SPI 302 IRQ_TYPE_LEVEL_HIGH>,
+				      <&intc GIC_SPI 254 IRQ_TYPE_LEVEL_HIGH>,
+				      <&mpm 94 IRQ_TYPE_EDGE_BOTH>,
+				      <&mpm 93 IRQ_TYPE_EDGE_BOTH>,
+				      <&mpm 12 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "dwc_usb3",
+				  "pwr_event",
+				  "hs_phy_irq",
+				  "dp_hs_phy_irq",
+				  "dm_hs_phy_irq",
+				  "ss_phy_irq";
+
+		power-domains = <&gcc USB30_PRIM_GDSC>;
+		resets = <&gcc GCC_USB30_PRIM_BCR>;
+		iommus = <&apps_smmu 0xe0 0x0>;
+
+		phys = <&usb_1_hsphy>;
+		phy-names = "usb2-phy";
+		maximum-speed = "high-speed";
+		qcom,select-utmi-as-pipe-clk;
+
+		snps,hird-threshold = /bits/ 8 <0x10>;
+		snps,usb2-gadget-lpm-disable;
+		snps,dis_u2_susphy_quirk;
+		snps,is-utmi-l1-suspend;
+		snps,dis-u1-entry-quirk;
+		snps,dis-u2-entry-quirk;
+		snps,usb3_lpm_capable;
+		snps,has-lpm-erratum;
+		tx-fifo-resize;
+
+		dr_mode = "otg";
+		usb-role-switch;
+		role-switch-default-mode = "peripheral";
+
+		port {
+			usb_1_hs: endpoint {
+				remote-endpoint = <&typec_hs>;
+			};
+		};
+	};
 };
 
 &usb_1_hsphy {
