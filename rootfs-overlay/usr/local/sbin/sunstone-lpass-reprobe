@@ -1,0 +1,27 @@
+#!/bin/sh
+# sunstone: probe the LPASS audio devices again once the ADSP's clock controller (q6afe) is back.
+# An ADSP restart unbinds them (kernel patch 0015: device links to their actual clock provider),
+# and the driver core does not probe unbound consumers again by itself. drivers_probe works for
+# the macros too, whose drivers have no bind attribute; the deferred probe sorts out the order.
+# The sound card stays bound through the restart, but its DAI links still name the old
+# components' DAIs (freed strings: "ASoC: CODEC DAI \x80\x16... not registered"): bound without a
+# card means that, and binding it again parses the DT afresh; until its components are all back
+# (the WCD only once the SoundWire buses enumerate it) that bind fails, so it is retried for 20 s.
+# At boot it is not bound yet. Run by 80-sunstone-lpass.rules, through systemd-run (udev kills
+# long RUN programs).
+P=/sys/bus/platform
+for d in a7c0000.pinctrl a730000.codec a600000.codec a620000.codec \
+	a740000.soundwire a610000.soundwire sound; do
+	[ -e $P/devices/$d/driver ] || echo $d > $P/drivers_probe 2>/dev/null
+done
+card() { ls -d $P/devices/sound/sound/card* >/dev/null 2>&1; }
+if [ -e $P/devices/sound/driver ] && ! card; then
+	echo sound > $P/drivers/snd-sm8250/unbind
+	for i in $(seq 20); do
+		sleep 1
+		[ -e $P/devices/sound/driver ] && card && break
+		[ -e $P/devices/sound/driver ] || echo sound > $P/drivers/snd-sm8250/bind 2>/dev/null
+	done
+	card && echo "sunstone-lpass-reprobe: sound card back after ${i} s" > /dev/kmsg
+fi
+exit 0

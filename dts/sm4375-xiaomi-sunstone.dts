@@ -973,7 +973,12 @@
 	swr1: soundwire@a610000 {
 		compatible = "qcom,soundwire-v1.6.0";
 		reg = <0x0 0x0a610000 0x0 0x2000>;
-		interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH>;
+		/*
+		 * rising edge, as the driver requests it: with LEVEL_HIGH here the mapping no longer
+		 * matches after the first request, and the controller cannot probe again (after an
+		 * ADSP restart unbinds it): "irq: type mismatch, failed to map hwirq-329"
+		 */
+		interrupts = <GIC_SPI 297 IRQ_TYPE_EDGE_RISING>;
 
 		clocks = <&rxmacro>;
 		clock-names = "iface";
@@ -1061,7 +1066,8 @@
 		 * wakeup: the stock swr_wake_irq. The controller clock-stops when idle, and the WCD's
 		 * alerts (the headset jack's MBHC) only get through it once the bus is woken up.
 		 */
-		interrupts-extended = <&intc GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>,
+		/* the core interrupt rising edge, as for swr1 */
+		interrupts-extended = <&intc GIC_SPI 296 IRQ_TYPE_EDGE_RISING>,
 				      <&tlmm 128 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "core", "wakeup";
 		clocks = <&txmacro>;

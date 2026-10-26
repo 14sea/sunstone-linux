@@ -74,11 +74,17 @@
       PLL 的兩條），顯示正常。可能是 MDSS 復位後 PHY 還沒初始化時就有人要 PLL（同上面的 byte/pclk 告警），一起查。
 - [x] snap 掛載時 `SQUASHFS error: Xattrs in filesystem, these will be ignored`（兩個 snap，掛載正常）：`sunstone.config` 已加
       `SQUASHFS_XATTR=y`（Ubuntu 的內核也開）。（2026-10-26 boot-143：7 個 squashfs 掛載，沒有這條錯誤。）
-- [ ] **ADSP 重啟後整機復位**（boot-143）：手動 `remoteproc stop/start` 和 sensors PD 崩潰觸發的 SSR 都一樣。q6afe 重新探測
-      正常（補丁 0013 前這裡是空指針），但 LPASS 時鐘還沒好：rx/tx/va macro 和 lpass-lpi 的 `__pm_clk_enable` 返回 -6，
-      AFE set params -22，VA SoundWire `link failed to connect`、寫 FIFO 溢出，之後幾十毫秒內沒有任何日誌就復位（大概是沒時鐘時
-      訪問 LPASS 寄存器，總線錯誤）。服務器上算是能恢復（約 1 分鐘回來），但音頻設備要能熬過 SSR：macro/SoundWire 在 q6afe
-      時鐘消失時停止訪問寄存器，ADSP 回來後重新 probe（主線 sm8250 等平台怎麼處理的對照一下）。
+- [x] **ADSP 重啟後整機復位**（boot-143；2026-10-26 修好，boot-152）：rx/tx/va macro 和 LPI 引腳控制器的時鐘來自 q6afe
+      的時鐘控制器，它是 remoteproc 的子設備（ADSP 起來後才有），fw_devlink 只能把它們鏈到 remoteproc，而 remoteproc 在 ADSP
+      重啟時不解綁：它們留着 clk_nodrv 的時鐘（−6/−ENXIO），聲卡重新綁定時無時鐘訪問寄存器，總線卡死。修法：
+      本地補丁 0015（macro 和 LPI 探測時對真正的時鐘提供者建受管理的 device link → 時鐘控制器一走，驅動核心先解綁它們、
+      連帶 SoundWire 和聲卡，發生在 remoteproc 斷電之前）；SoundWire 中斷在 DTS 改成上升沿（驅動申請的就是上升沿，
+      LEVEL_HIGH 時第二次探測 `irq: type mismatch` → request_irq(0) 失敗）；`80-sunstone-lpass.rules` 在 q6afe 時鐘控制器
+      綁定時經 systemd-run 跑 `sunstone-lpass-reprobe`（drivers_probe 這些設備；聲卡綁着卻沒有 card = 它的 DAI 名字指向
+      已釋放的舊字符串（"CODEC DAI \x80\x16... not registered"），解綁再綁、20 s 內重試）；hexagonrpcd `Restart=always`
+      （ADSP 重啟時它正常退出）。驗證：`echo stop/start` 和 debugfs `crash`（2，fatal error：remoteproc 的崩潰恢復）各數次，
+      不再復位，聲卡約 2 s 回來，傳感器約 8 s，之後加速度計、光線、麥克風正常。剩下：解綁時 `qcom_swrm_remove` 對已
+      runtime suspend 的控制器 `clk_disable`（"already disabled" WARNING，主線 bug，無害）；沒試真的 DSP 崩潰。
 - [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
       panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的
       ECC/dmesg 區從沒進過倉庫裏的 DTS（試驗時是臨時改的）。

@@ -1,0 +1,3 @@
+# sunstone: after an ADSP restart, probe the LPASS audio devices again (sunstone-lpass-reprobe)
+ACTION=="bind", SUBSYSTEM=="platform", KERNEL=="*:apr:service@4:clock-controller", \
+	RUN+="/usr/bin/systemd-run --no-block --collect --unit=sunstone-lpass-reprobe /usr/local/sbin/sunstone-lpass-reprobe"

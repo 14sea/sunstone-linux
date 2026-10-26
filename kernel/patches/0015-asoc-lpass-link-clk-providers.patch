@@ -1,0 +1,162 @@
+ASoC: codecs: lpass-macro: link the macros to their clock providers
+
+On SM4375 an ADSP restart takes the board down. The LPASS macros (and the
+LPI pin controller) get their clocks from the DSP's clock controller
+(q6afe), a subdevice of the ADSP's remoteproc that only exists while the
+DSP is up. fw_devlink therefore links them to the remoteproc instead, and
+the remoteproc stays bound across a restart: the clock controller goes,
+the macros keep clocks with clk_nodrv_ops (pm_clk_suspend warns, enable
+fails with -ENXIO), and when the sound card binds again after the restart
+they touch their registers unclocked, which hangs the bus.
+
+Link the macros and the LPI pin controller to the devices that actually
+provide their clocks, with managed device links. When the clock controller
+goes away with the DSP, the driver core now unbinds them (and with them the
+SoundWire controllers and the sound card) first; they can be probed again
+once it is back.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c b/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c
+index 5fd4a4eba..929b5e6c1 100644
+--- a/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c
++++ b/drivers/pinctrl/qcom/pinctrl-lpass-lpi.c
+@@ -9,6 +9,7 @@
+ #include <linux/gpio/driver.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
++#include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/seq_file.h>
+ #include <linux/cleanup.h>
+@@ -496,6 +497,29 @@ static int lpi_build_pin_desc_groups(struct lpi_pinctrl *pctrl)
+ 	return ret;
+ }
+ 
++/*
++ * As lpass_macro_link_clk_providers(): the DSP's clock controller is a subdevice of its remoteproc,
++ * which fw_devlink links instead and which stays bound when the DSP restarts. Link the actual
++ * clock providers, so a restart unbinds the pin controller before its clocks go away.
++ */
++static void lpi_link_clk_providers(struct device *dev)
++{
++	struct of_phandle_args args;
++	int i;
++
++	for (i = 0; !of_parse_phandle_with_args(dev->of_node, "clocks", "#clock-cells", i, &args);
++	     i++) {
++		struct platform_device *supplier = of_find_device_by_node(args.np);
++
++		of_node_put(args.np);
++		if (!supplier)
++			continue;
++		if (!device_link_add(dev, &supplier->dev, DL_FLAG_AUTOREMOVE_CONSUMER))
++			dev_warn(dev, "no device link to %s\n", dev_name(&supplier->dev));
++		put_device(&supplier->dev);
++	}
++}
++
+ int lpi_pinctrl_probe(struct platform_device *pdev)
+ {
+ 	const struct lpi_pinctrl_variant_data *data;
+@@ -538,6 +562,7 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
+ 	ret = of_pm_clk_add_clks(dev);
+ 	if (ret < 0 && ret != -ENODEV)
+ 		return ret;
++	lpi_link_clk_providers(dev);
+ 
+ 	pm_runtime_set_autosuspend_delay(dev, 100);
+ 	pm_runtime_use_autosuspend(dev);
+diff --git a/sound/soc/codecs/lpass-macro-common.c b/sound/soc/codecs/lpass-macro-common.c
+index 7e59616ed..3d1dad8fc 100644
+--- a/sound/soc/codecs/lpass-macro-common.c
++++ b/sound/soc/codecs/lpass-macro-common.c
+@@ -6,6 +6,7 @@
+ #include <linux/module.h>
+ #include <linux/init.h>
+ #include <linux/of.h>
++#include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
+@@ -70,6 +71,32 @@ void lpass_macro_pds_exit(struct lpass_macro *pds)
+ }
+ EXPORT_SYMBOL_GPL(lpass_macro_pds_exit);
+ 
++/*
++ * Link the device to the providers of its clocks. The DSP's clock controller (q6afe, q6prm) is a
++ * subdevice of its remoteproc, created once the DSP is up, so fw_devlink ties the macros to the
++ * remoteproc instead, and that stays bound when the DSP restarts: the macros keep clocks whose
++ * provider is gone (clk_nodrv_ops) and touch their registers unclocked. With these links the
++ * clock controller going away unbinds them first; they can be probed again once it is back.
++ */
++void lpass_macro_link_clk_providers(struct device *dev)
++{
++	struct of_phandle_args args;
++	int i;
++
++	for (i = 0; !of_parse_phandle_with_args(dev->of_node, "clocks", "#clock-cells", i, &args);
++	     i++) {
++		struct platform_device *supplier = of_find_device_by_node(args.np);
++
++		of_node_put(args.np);
++		if (!supplier)
++			continue;
++		if (!device_link_add(dev, &supplier->dev, DL_FLAG_AUTOREMOVE_CONSUMER))
++			dev_warn(dev, "no device link to %s\n", dev_name(&supplier->dev));
++		put_device(&supplier->dev);
++	}
++}
++EXPORT_SYMBOL_GPL(lpass_macro_link_clk_providers);
++
+ void lpass_macro_set_codec_version(enum lpass_codec_version version)
+ {
+ 	guard(mutex)(&lpass_codec_mutex);
+diff --git a/sound/soc/codecs/lpass-macro-common.h b/sound/soc/codecs/lpass-macro-common.h
+index 10ad68201..f3831cbdc 100644
+--- a/sound/soc/codecs/lpass-macro-common.h
++++ b/sound/soc/codecs/lpass-macro-common.h
+@@ -39,6 +39,7 @@ struct lpass_macro {
+ 
+ struct lpass_macro *lpass_macro_pds_init(struct device *dev);
+ void lpass_macro_pds_exit(struct lpass_macro *pds);
++void lpass_macro_link_clk_providers(struct device *dev);
+ void lpass_macro_set_codec_version(enum lpass_codec_version version);
+ enum lpass_codec_version lpass_macro_get_codec_version(void);
+ 
+diff --git a/sound/soc/codecs/lpass-rx-macro.c b/sound/soc/codecs/lpass-rx-macro.c
+index 282a6aaa9..262607f84 100644
+--- a/sound/soc/codecs/lpass-rx-macro.c
++++ b/sound/soc/codecs/lpass-rx-macro.c
+@@ -3805,6 +3805,7 @@ static int rx_macro_probe(struct platform_device *pdev)
+ 	rx->pds = lpass_macro_pds_init(dev);
+ 	if (IS_ERR(rx->pds))
+ 		return PTR_ERR(rx->pds);
++	lpass_macro_link_clk_providers(dev);
+ 
+ 	ret = devm_add_action_or_reset(dev, lpass_macro_pds_exit_action, rx->pds);
+ 	if (ret)
+diff --git a/sound/soc/codecs/lpass-tx-macro.c b/sound/soc/codecs/lpass-tx-macro.c
+index a8e83eb60..c78e01d01 100644
+--- a/sound/soc/codecs/lpass-tx-macro.c
++++ b/sound/soc/codecs/lpass-tx-macro.c
+@@ -2283,6 +2283,7 @@ static int tx_macro_probe(struct platform_device *pdev)
+ 	tx->pds = lpass_macro_pds_init(dev);
+ 	if (IS_ERR(tx->pds))
+ 		return PTR_ERR(tx->pds);
++	lpass_macro_link_clk_providers(dev);
+ 
+ 	base = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(base)) {
+diff --git a/sound/soc/codecs/lpass-va-macro.c b/sound/soc/codecs/lpass-va-macro.c
+index 44ad69e0f..c7eacd6a5 100644
+--- a/sound/soc/codecs/lpass-va-macro.c
++++ b/sound/soc/codecs/lpass-va-macro.c
+@@ -1576,6 +1576,7 @@ static int va_macro_probe(struct platform_device *pdev)
+ 	va->pds = lpass_macro_pds_init(dev);
+ 	if (IS_ERR(va->pds))
+ 		return PTR_ERR(va->pds);
++	lpass_macro_link_clk_providers(dev);
+ 
+ 	ret = of_property_read_u32(dev->of_node, "qcom,dmic-sample-rate",
+ 				   &sample_rate);
