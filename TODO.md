@@ -396,8 +396,10 @@
       `videoflip`，按快門時按同一個方向設好（camerabin 不把標籤傳給拍照分支：第一版用 `auto`，照片沒轉），之後去掉方向
       標籤。裝在 /usr/local（Ubuntu 的包保留），在手機上編譯約 12 min。用户：預覽各方向都正，豎屏照片 1080x1920、
       橫屏 1920x1080，都是正的。沒做：錄像（標籤同樣不一定到錄像分支，沒試）。
-- [ ] iio-sensor-proxy 開機時有一次沒有加速度計（2026-10-26 boot-174，`HasAccelerometer` false，GNOME 不能自動旋轉）：
-      drop-in 等 QRTR 服務 400 的 ExecStartPre 過了，但它還是比 SSC 的傳感器早；手動重啟服務後正常。要更可靠的等待條件。
+- [x] iio-sensor-proxy 開機時沒有加速度計（2026-10-26 boot-174，`HasAccelerometer` false，GNOME 不能自動旋轉；修好）：
+      QRTR 服務 400 在 ADSP 起來後就有了（8.3 s 時已在），各傳感器要等 hexagonrpcd 送完註冊表（約 9–12 s）才註冊。
+      drop-in 改為等 `ssccli --sensor accelerometer` 能打開（和 proxy 一樣經 libssc），最多 2 min（沒有 ssccli 時不等），`TimeoutStartSec=180`。
+      兩次重啟：等了 2.5 s、3.4 s，都有加速度計（GNOME 自動旋轉另外要求會話啟動時沒有連着鼠標）。
 - [x] 主攝的「咔」聲（2026-10-26，用户：不影響壽命就不修）：切到主攝和離開主攝時各一聲，開時較響。聽音對比：鏡頭目標 0
       （不移動）也響、只給馬達上電（不開傳感器）也響；電源開着時手動讓 DW9800 休眠、喚醒、切模式都不響 → 來自馬達電源
       cam_vaf 通斷的瞬間，不是鏡頭移動。可選的修法（cam_vaf 常開、空閒時只讓芯片休眠，連帶 cam_vio 常開）沒做。
