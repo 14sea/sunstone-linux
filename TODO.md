@@ -299,7 +299,18 @@
       `Headphone Jack`）：插上時 PipeWire 自動切過去。播完有爆音：RX macro 的 mute_stream 只靜音數據，SoundWire 在
       hw_free 停下時 HPH PA 還開着 → 本地補丁 0014（wcd937x 的 mute_stream 先關開着的 HPHL/HPHR/EAR PA，下一次流開始時
       DAPM 若還開着就重新打開），之後用户確認沒有爆音。
-      剩下：聽筒、耳機麥（要帶麥的耳機）、副麥進 UCM（雙麥）。
+      **聽筒不響（2026-10-26，沒做完，UCM 裡先不放）**：原廠 handset 路徑（兩份 mixer_paths 一樣）：RX0 → RX INT0
+      （`RX_EAR Mode` ON，DEM CLSH_DSM_OUT）→ WCD RX1 → `RDAC3_MUX` RX1 → `EAR_RDAC` → EAR PA，原廠設備樹只有一顆
+      SIA8159，聽筒就在 WCD 的 EAR 上。主線照做：用户只聽到咔嗒聲（「噠噠噠」），頂部麥克風在 −30 dBFS 的 1 kHz 下也錄不到
+      音調（揚聲器 −44 dBFS 時底部麥克風 −36 dBFS）。查過：① 主線要 `HPHL Switch`（RX1 的 SoundWire 通道）才有數據，
+      不開時 HPHL PDM 看門狗反覆觸發（咔嗒加劇），開了看門狗不再觸發但仍無聲；② `RX HPH Mode` 拔耳機後是 CLS_H_INVALID，
+      設 NORMAL/ULP 都一樣；③ 原廠 EAR DAC 上電無條件置 `CDC_COMP_CTL_0` 0x02（主線只在 comp1 開時），用 `HPHL_COMP Switch`
+      試過，無聲；④ 換 RX3（揚聲器的數據通路，`LO Switch` 是它的 SoundWire 通道）餵 EAR 也無聲 → 問題在 EAR 模擬側。
+      播放時寄存器：ANA_EAR 0x80、EAR_DAC_CON 0x80、EAR_COMPANDER_CTL 0x92、EAR_PATH_CTL 0。原廠 EAR PA 上電還有
+      `PDM_WD_CTL0` 0x17/0x13（主線 0x07/0x03）和 `swr_slvdev_datapath_control`。對照源碼：CodeLinaro
+      `platform/vendor/opensource/audio-kernel` 的 asoc/codecs/wcd937x/wcd937x.c。下一步：逐個比 EAR 相關寄存器
+      （原廠 Android 下的值拿不到時，按下游代碼補寫）。通話本來也要 q6voice（主線沒有）。
+      剩下：耳機麥（要帶麥的耳機）、副麥進 UCM（雙麥）。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
       boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
       （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀
