@@ -83,7 +83,10 @@
       綁定時經 systemd-run 跑 `sunstone-lpass-reprobe`（drivers_probe 這些設備；聲卡綁着卻沒有 card = 它的 DAI 名字指向
       已釋放的舊字符串（"CODEC DAI \x80\x16... not registered"），解綁再綁、20 s 內重試）；hexagonrpcd `Restart=always`
       （ADSP 重啟時它正常退出）。驗證：`echo stop/start` 和 debugfs `crash`（2，fatal error：remoteproc 的崩潰恢復）各數次，
-      不再復位，聲卡約 2 s 回來，傳感器約 8 s，之後加速度計、光線、麥克風正常。剩下：解綁時 `qcom_swrm_remove` 對已
+      不再復位，聲卡約 2 s 回來，傳感器約 8 s，之後加速度計、光線、麥克風正常。恢復後揚聲器只響一聲很大的「啪」、
+      沒有聲音（麥克風錄到峰值 16537、之後無音）：SoundWire 從設備重建後寄存器緩存是默認值，WCD 芯片卻保留着舊值，緩存
+      跳過了要寫的寄存器 → 本地補丁 0016（wcd937x 組件 unbind 時硬件復位芯片）。boot-153 對照：重啓後 A、模擬崩潰後 B，
+      三聲嘀都錄到（約 −36 dBFS），用户聽着一樣、無爆音。剩下：解綁時 `qcom_swrm_remove` 對已
       runtime suspend 的控制器 `clk_disable`（"already disabled" WARNING，主線 bug，無害）；沒試真的 DSP 崩潰。
 - [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
       panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的

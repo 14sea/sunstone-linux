@@ -124,3 +124,5 @@
 | — | 2026-10-26 | `sunstone-sonar`：手機墊高（書堆，底邊齊邊緣）測牆；報告規則改（序列含最強回波，否則最近的強回波） | 不校準：50 cm → 0.488 m（−10.3 dB，兩次相同），100 cm → 0.952/0.957/0.954/0.955 m；用新規則重放之前桌面上的數據：書 30 cm → 0.309，50 cm → 0.509 | — |
 | 151 | 2026-10-26 | 本地補丁 0015（macro、LPI pinctrl 對時鐘提供者建 device link）；`80-sunstone-lpass.rules` + `sunstone-lpass-reprobe`；hexagonrpcd `Restart=always`；內核 `ge2b5c0379659`；`e0c17626d10bc13d` | 先在 boot-150 手動解綁試：macro 不能從 sysfs 解綁，SoundWire 綁不回（舊時鐘）。boot-151：ADSP stop 時整個音頻棧自動解綁、不再復位；start 後 macro 回來，SoundWire 探測失敗：`irq: type mismatch, failed to map hwirq-328/329`（DTS LEVEL_HIGH，驅動申請 RISING） | — |
 | 152 | 2026-10-26 | SoundWire 中斷改 `IRQ_TYPE_EDGE_RISING`；重新探測腳本解綁再綁聲卡（DAI 名字指向已釋放字符串）並重試 20 s；`8e4484ce393e3c93` | stop/start 和 debugfs crash（fatal error）都恢復：聲卡約 2 s、傳感器約 8 s，無復位；之後加速度計、光線、麥克風正常 | — |
+| — | 2026-10-26 | boot-152 上：崩潰恢復後的揚聲器對照（重啓後 A → debugfs crash → B，麥克風錄音） | A 三聲嘀 −36 dBFS；B 開頭一個 16537 的瞬態、之後無聲：WCD 的新寄存器緩存是默認值、芯片保留舊值 | — |
+| 153 | 2026-10-26 | 本地補丁 0016（wcd937x unbind 時復位芯片）；內核 `gd5cc05fd6fd5`；`8143748e48b6c886` | A、B 都是三聲 −36 dBFS 的嘀，用户聽着一樣、B 結尾無爆音：ADSP 崩潰恢復後揚聲器正常 | — |

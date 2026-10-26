@@ -1,0 +1,31 @@
+ASoC: codecs: wcd937x: reset the codec when its SoundWire devices go away
+
+When the SoundWire controllers behind a WCD937x unbind (on SM4375 when
+the ADSP restarts and takes the LPASS macros with it), the codec's
+SoundWire devices are deleted and come back with fresh register caches at
+the defaults, while the codec itself keeps the values it had. The caches
+then skip writes the codec still needs: after an ADSP restart the speaker
+path through AUX gives one loud click and no sound.
+
+Reset the codec when the component master unbinds, so that it starts from
+its defaults like the caches.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/codecs/wcd937x.c b/sound/soc/codecs/wcd937x.c
+index 08fb404e5..0c17f6dc2 100644
+--- a/sound/soc/codecs/wcd937x.c
++++ b/sound/soc/codecs/wcd937x.c
+@@ -2916,6 +2916,12 @@ static void wcd937x_unbind(struct device *dev)
+ 	mutex_destroy(&wcd937x->micb_lock);
+ 	put_device(wcd937x->txdev);
+ 	put_device(wcd937x->rxdev);
++	/*
++	 * The SoundWire devices come back with new register caches, at their defaults (after a DSP
++	 * restart unbinds the SoundWire controllers, say): put the codec back to its defaults too,
++	 * or the caches skip writes the codec still needs and the outputs come up wrong.
++	 */
++	wcd937x_reset(wcd937x);
+ }
+ 
+ static const struct component_master_ops wcd937x_comp_ops = {
