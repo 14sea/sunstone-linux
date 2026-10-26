@@ -116,3 +116,4 @@
 | 147 | 2026-10-26 | 路由改 `TX SWR_INPUT0` ← `ADC1_OUTPUT`（sm6115 用 v9_2 的 widget）；`0157dd133549fda2` | 聲卡和 MultiMedia1–3 都在；手動路由後 `arecord -D hw:0,2` 有數據：安靜時約 −88 dBFS，用户對着底部說話時峰值 −30 dBFS（ADC1 增益 0）。主麥克風能用 | — |
 | 148 | 2026-10-26 | 副麥：`qcom,tx-channel-mapping`（qcm6490-idp 的）、`TX SWR_INPUT1` ← `ADC2_OUTPUT`；`a99a1896c48df1bb` | 兩路 ADC 同時開：ch1 約 −14 dBFS 的雜音，ch2 為 0；只開主麥正常。WCD 端口 1、2 都映到主控端口 1，qcom SoundWire 給兩個從端口同樣的偏移，採樣相撞 | — |
 | 149 | 2026-10-26 | `qcom,tx-port-mapping = <1 2 3 3>`（原廠佈局），去掉 channel mapping，副麥 `TX SWR_INPUT4` / `SWR_MIC4`；`7ea275419ad67145` | 雙聲道錄音兩路都有正常底噪，逐點相同 3.6%、相關 0.33：兩個獨立的麥克風 | — |
+| — | 2026-10-26 | boot-149 上：UCM（Speaker、Mic）、`alsa-ucm-conf`；WirePlumber 規則固定 S16LE | PipeWire 按 UCM 生成揚聲器和麥克風節點；第一次經 PipeWire 放測試音用户沒聽到（S24_LE），aplay 對比：16 位的測試音麥克風錄到，24 位錄不到；改 S16LE 後用户聽到；PipeWire 錄音有數據 | — |

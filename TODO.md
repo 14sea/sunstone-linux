@@ -285,7 +285,14 @@
       boot-148，加 `qcom,tx-channel-mapping` 也一樣）。雙聲道錄音：ch1 主麥（DEC0）、ch2 副麥（`ADC2 MUX` INP3、
       `TX SMIC MUX1` SWR_MIC4、DEC1），兩路獨立（相關 0.33）。注意 swr0 端口 3（MBHC）的 offset1 和端口 1 一樣是 1。
       用户對着底部說話時 ch1 高 8–14 dB，對着頂部時 ch2 高 8–10 dB：ch1（AMIC1）在底部，ch2（AMIC3）在頂部。
-      剩下：耳機麥和插孔檢測（MBHC）、錄音增益和 UCM。
+      **UCM（2026-10-26）**：`/usr/share/alsa/ucm2/conf.d/sm4250/Xiaomi-Sunstone.conf`（聲卡驅動名 sm4250，長名
+      Xiaomi-Sunstone）+ `Xiaomi/sunstone/HiFi.conf`（rootfs-overlay；`alsa-ucm-conf` 加進 build-rootfs.sh）：HiFi 用例，
+      設備 Speaker（RX0+RX1 混進 INT2，數字音量固定原廠的 78 = −6 dB，不給 PipeWire 硬件音量，桌面音量是軟件的，100% 即
+      原廠最大）和 Mic（主麥，`TX_DEC0 Volume` 94，`ADC1 Volume` 12）。PipeWire 生成「Built-in Audio Speaker」和
+      「Internal microphone」，播放（用户聽到）和錄音都通。**24 位不出聲**：PipeWire 默認 S24_LE，經 q6asm 播放沒有聲音
+      （aplay S16_LE 的測試音麥克風錄得到，同樣的 S24_LE 錄不到）；WirePlumber 規則 `51-sunstone-s16.conf` 把這張卡的節點
+      固定成 S16LE。內核裡 24 位的原因沒查（q6asm 的 PCM 格式塊？）。
+      剩下：耳機（播放、耳機麥、插孔檢測 MBHC）、聽筒、副麥進 UCM（雙麥）。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
       boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
       （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀
