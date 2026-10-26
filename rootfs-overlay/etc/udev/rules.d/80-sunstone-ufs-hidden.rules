@@ -1,0 +1,3 @@
+# sunstone: the phone's own UFS (modem, persist, EFS, the vendor partitions...) stays out of udisks,
+# so desktop file managers neither list nor mount it; USB storage is not affected.
+SUBSYSTEM=="block", ENV{ID_PATH}=="platform-4804000.ufshc-*", ENV{UDISKS_IGNORE}="1"
