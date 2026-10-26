@@ -26,8 +26,9 @@ fi
 install -d -m 755 $NM/conf.d $NM/system-connections
 cat > $NM/conf.d/sunstone.conf <<'EOF'
 # sunstone: NetworkManager runs wlan0 only; usb0 (the USB link to the test host) stays with
-# systemd-networkd. The MAC address is the DT's fixed one, also while scanning; power save off
-# (the phone is a server on permanent power).
+# systemd-networkd. The MAC address is the DT's fixed one, also while scanning. Power save is left
+# alone (1): sunstone-wifi-btcoex turns it on only while a Bluetooth device is connected and off
+# otherwise (the phone is a server on permanent power).
 [keyfile]
 unmanaged-devices=interface-name:usb0
 
@@ -36,7 +37,7 @@ wifi.scan-rand-mac-address=no
 
 [connection]
 wifi.cloned-mac-address=permanent
-wifi.powersave=2
+wifi.powersave=1
 # the DHCP client ID is the (fixed) MAC address, so the router knows the phone whatever its system
 # or network manager; a reservation for 02:53:4e:00:00:10 there keeps its address
 ipv4.dhcp-client-id=mac

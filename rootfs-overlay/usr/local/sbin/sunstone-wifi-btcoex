@@ -1,0 +1,17 @@
+#!/bin/sh
+# sunstone: Wi-Fi power save on while a Bluetooth device is connected, off otherwise. The WCN3988
+# shares its antenna between WLAN and Bluetooth; with power save off the coexistence logic cannot
+# make the access point hold frames during the Bluetooth slots, and with a BLE link at 7.5 ms (the
+# M575 mouse asks for that) the AP's voice-class frames to the phone fail, drop to CCK 5.5 Mbit/s
+# and then frames over about 700 bytes never get through (ssh, which marks DSCP EF, hangs in its
+# key exchange; 2026-10-26). Power save costs latency (5 -> about 50 ms), so only while needed.
+# Run by 80-sunstone-wlan0.rules (wlan0 appears) and 80-sunstone-btcoex.rules (a link comes or
+# goes; on removal the sysfs entry may still be there for a moment, hence the short wait).
+[ "$1" = remove ] && sleep 1
+[ -e /sys/class/net/wlan0 ] || exit 0
+n=$(ls -d /sys/class/bluetooth/hci*:* 2>/dev/null | wc -l)
+if [ "$n" -gt 0 ]; then want=on; else want=off; fi
+now=$(/usr/sbin/iw dev wlan0 get power_save 2>/dev/null | sed -n 's/^Power save: //p')
+[ "$now" = "$want" ] && exit 0
+/usr/sbin/iw dev wlan0 set power_save $want &&
+	echo "sunstone-wifi-btcoex: $n Bluetooth link(s), Wi-Fi power save $want" > /dev/kmsg

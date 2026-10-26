@@ -1,0 +1,2 @@
+# sunstone: a Bluetooth link (hciN:handle) came or went: Wi-Fi power save follows (sunstone-wifi-btcoex)
+SUBSYSTEM=="bluetooth", ENV{DEVTYPE}=="link", ACTION=="add|remove", RUN+="/usr/local/sbin/sunstone-wifi-btcoex $env{ACTION}"
