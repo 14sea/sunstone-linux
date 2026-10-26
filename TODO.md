@@ -292,7 +292,14 @@
       「Internal microphone」，播放（用户聽到）和錄音都通。**24 位不出聲**：PipeWire 默認 S24_LE，經 q6asm 播放沒有聲音
       （aplay S16_LE 的測試音麥克風錄得到，同樣的 S24_LE 錄不到）；WirePlumber 規則 `51-sunstone-s16.conf` 把這張卡的節點
       固定成 S16LE。內核裡 24 位的原因沒查（q6asm 的 PCM 格式塊？）。
-      剩下：耳機（播放、耳機麥、插孔檢測 MBHC）、聽筒、副麥進 UCM（雙麥）。
+      **耳機能用（boot-150）**：插孔檢測（MBHC）原來不工作，WCD 的中斷經 SoundWire 從設備告警上報，TX SoundWire 空閒時
+      時鐘停止，告警到不了；原廠有 `swr_wake_irq`（TLMM GPIO 128），DTS 的 swr0 加上它（`interrupt-names = "core",
+      "wakeup"`）後，總線休眠時插拔也即時檢測（阻抗約 52 Ω）。用户的耳機沒有麥克風，判成純耳機是對的；耳機麥（UCM
+      Headset，`Mic Jack`）沒測。UCM Headphones（alsa-ucm-conf 的 rx-macro / wcd937x 序列，原廠的數字 84、模擬 20，
+      `Headphone Jack`）：插上時 PipeWire 自動切過去。播完有爆音：RX macro 的 mute_stream 只靜音數據，SoundWire 在
+      hw_free 停下時 HPH PA 還開着 → 本地補丁 0014（wcd937x 的 mute_stream 先關開着的 HPHL/HPHR/EAR PA，下一次流開始時
+      DAPM 若還開着就重新打開），之後用户確認沒有爆音。
+      剩下：聽筒、耳機麥（要帶麥的耳機）、副麥進 UCM（雙麥）。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
       boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
       （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀

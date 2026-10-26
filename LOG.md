@@ -117,3 +117,5 @@
 | 148 | 2026-10-26 | 副麥：`qcom,tx-channel-mapping`（qcm6490-idp 的）、`TX SWR_INPUT1` ← `ADC2_OUTPUT`；`a99a1896c48df1bb` | 兩路 ADC 同時開：ch1 約 −14 dBFS 的雜音，ch2 為 0；只開主麥正常。WCD 端口 1、2 都映到主控端口 1，qcom SoundWire 給兩個從端口同樣的偏移，採樣相撞 | — |
 | 149 | 2026-10-26 | `qcom,tx-port-mapping = <1 2 3 3>`（原廠佈局），去掉 channel mapping，副麥 `TX SWR_INPUT4` / `SWR_MIC4`；`7ea275419ad67145` | 雙聲道錄音兩路都有正常底噪，逐點相同 3.6%、相關 0.33：兩個獨立的麥克風 | — |
 | — | 2026-10-26 | boot-149 上：UCM（Speaker、Mic）、`alsa-ucm-conf`；WirePlumber 規則固定 S16LE | PipeWire 按 UCM 生成揚聲器和麥克風節點；第一次經 PipeWire 放測試音用户沒聽到（S24_LE），aplay 對比：16 位的測試音麥克風錄到，24 位錄不到；改 S16LE 後用户聽到；PipeWire 錄音有數據 | — |
+| — | 2026-10-26 | boot-149 上：UCM 加 Headphones；耳機插孔 | 插耳機沒反應：WCD 中斷計數 0；`power/control=on` 讓 TX SoundWire 不休眠後積壓的中斷立刻上來、耳機被認出（52/53 Ω），重插實時檢測。耳機播放用户聽到，但結尾有爆音（揚聲器路徑關掉後仍有，是耳機） | — |
+| 150 | 2026-10-26 | 本地補丁 0014（wcd937x mute_stream 先關 HPH/EAR PA）；swr0 加 `swr_wake_irq`（TLMM 128）；UCM 加 Headset mic；內核 `g08b2394beba5`；`7d069b424a60054c` | 總線休眠時插拔也即時檢測（wake IRQ 計數隨插拔增加）；耳機 −70 dBFS 測試音用户聽到、沒有爆音 | — |

@@ -1057,7 +1057,13 @@
 	swr0: soundwire@a740000 {
 		compatible = "qcom,soundwire-v1.6.0";
 		reg = <0x0 0x0a740000 0x0 0x2000>;
-		interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>;
+		/*
+		 * wakeup: the stock swr_wake_irq. The controller clock-stops when idle, and the WCD's
+		 * alerts (the headset jack's MBHC) only get through it once the bus is woken up.
+		 */
+		interrupts-extended = <&intc GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>,
+				      <&tlmm 128 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "core", "wakeup";
 		clocks = <&txmacro>;
 		clock-names = "iface";
 

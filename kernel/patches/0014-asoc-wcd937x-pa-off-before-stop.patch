@@ -1,0 +1,124 @@
+ASoC: codecs: wcd937x: switch the HPH and EAR PAs off before the stream stops
+
+On SM4375 (Xiaomi Redmi Note 12 5G) headphones pop at the end of every
+stream: the RX macro mutes the data, but the SoundWire port behind the
+headphone PAs stops in hw_free, and DAPM only switches the PAs off after
+that (pmdown_time later). Their input stopping under them is the pop.
+
+Add a mute_stream that switches the HPHL, HPHR and EAR PAs that are on
+off first, with the delay their DAPM power down has, and back on when the
+next stream starts while DAPM still has them up. Their PRE_PMD clears the
+record, so a PA DAPM took down in between is left to its own power up.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/codecs/wcd937x.c b/sound/soc/codecs/wcd937x.c
+index 0dd05604f..08fb404e5 100644
+--- a/sound/soc/codecs/wcd937x.c
++++ b/sound/soc/codecs/wcd937x.c
+@@ -101,6 +101,8 @@ struct wcd937x_priv {
+ 	int aux_pdm_wd_int;
+ 	bool comp1_enable;
+ 	bool comp2_enable;
++	/* the PAs mute_stream switched off, WCD937X_PA_MUTED_* */
++	u8 muted_pa;
+ 
+ 	struct gpio_desc *us_euro_gpio;
+ 	struct gpio_desc *reset_gpio;
+@@ -113,6 +115,10 @@ static const char * const wcd937x_supplies[] = {
+ 	"vdd-rxtx", "vdd-px", "vdd-mic-bias", "vdd-buck",
+ };
+ 
++#define WCD937X_PA_MUTED_HPHL	BIT(0)
++#define WCD937X_PA_MUTED_HPHR	BIT(1)
++#define WCD937X_PA_MUTED_EAR	BIT(2)
++
+ static const SNDRV_CTL_TLVD_DECLARE_DB_MINMAX(ear_pa_gain, 600, -1800);
+ static const DECLARE_TLV_DB_SCALE(line_gain, 0, 7, 1);
+ static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
+@@ -616,6 +622,7 @@ static int wcd937x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
+ 		enable_irq(wcd937x->hphr_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
++		wcd937x->muted_pa &= ~WCD937X_PA_MUTED_HPHR;
+ 		disable_irq_nosync(wcd937x->hphr_pdm_wd_int);
+ 		set_bit(HPH_PA_DELAY, &wcd937x->status_mask);
+ 		wcd_mbhc_event_notify(wcd937x->wcd_mbhc, WCD_EVENT_PRE_HPHR_PA_OFF);
+@@ -684,6 +691,7 @@ static int wcd937x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
+ 		enable_irq(wcd937x->hphl_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
++		wcd937x->muted_pa &= ~WCD937X_PA_MUTED_HPHL;
+ 		disable_irq_nosync(wcd937x->hphl_pdm_wd_int);
+ 		set_bit(HPH_PA_DELAY, &wcd937x->status_mask);
+ 		wcd_mbhc_event_notify(wcd937x->wcd_mbhc, WCD_EVENT_PRE_HPHL_PA_OFF);
+@@ -811,6 +819,7 @@ static int wcd937x_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
+ 			enable_irq(wcd937x->hphl_pdm_wd_int);
+ 		break;
+ 	case SND_SOC_DAPM_PRE_PMD:
++		wcd937x->muted_pa &= ~WCD937X_PA_MUTED_EAR;
+ 		if (wcd937x->ear_rx_path & EAR_RX_PATH_AUX)
+ 			disable_irq_nosync(wcd937x->aux_pdm_wd_int);
+ 		else
+@@ -2707,11 +2716,61 @@ static int wcd937x_get_channel_map(const struct snd_soc_dai *dai,
+ 	return 0;
+ }
+ 
++/*
++ * The headphone and earpiece PAs pop when their input stops under them: DAPM switches them off only
++ * after the stream (and with it the SoundWire port) has stopped. Switch the ones that are on off
++ * here, before that, and back on when the next stream starts, unless DAPM has taken them down
++ * in between (their PRE_PMD clears muted_pa).
++ */
++static int wcd937x_codec_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
++{
++	struct snd_soc_component *component = dai->component;
++	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
++	unsigned int hph, ear;
++
++	if (dai->id != AIF1_PB || stream != SNDRV_PCM_STREAM_PLAYBACK)
++		return 0;
++
++	if (mute) {
++		hph = snd_soc_component_read(component, WCD937X_ANA_HPH);
++		ear = snd_soc_component_read(component, WCD937X_ANA_EAR);
++
++		if (hph & BIT(7))
++			wcd937x->muted_pa |= WCD937X_PA_MUTED_HPHL;
++		if (hph & BIT(6))
++			wcd937x->muted_pa |= WCD937X_PA_MUTED_HPHR;
++		if (ear & BIT(7))
++			wcd937x->muted_pa |= WCD937X_PA_MUTED_EAR;
++		if (!wcd937x->muted_pa)
++			return 0;
++
++		snd_soc_component_update_bits(component, WCD937X_ANA_HPH, BIT(7) | BIT(6), 0);
++		snd_soc_component_update_bits(component, WCD937X_ANA_EAR, BIT(7), 0);
++		/* as after the PAs' DAPM power down */
++		if (wcd937x->comp1_enable && wcd937x->comp2_enable)
++			usleep_range(7000, 7100);
++		else
++			usleep_range(20000, 20100);
++	} else {
++		if (wcd937x->muted_pa & WCD937X_PA_MUTED_HPHL)
++			snd_soc_component_update_bits(component, WCD937X_ANA_HPH, BIT(7), BIT(7));
++		if (wcd937x->muted_pa & WCD937X_PA_MUTED_HPHR)
++			snd_soc_component_update_bits(component, WCD937X_ANA_HPH, BIT(6), BIT(6));
++		if (wcd937x->muted_pa & WCD937X_PA_MUTED_EAR)
++			snd_soc_component_update_bits(component, WCD937X_ANA_EAR, BIT(7), BIT(7));
++		wcd937x->muted_pa = 0;
++	}
++
++	return 0;
++}
++
+ static const struct snd_soc_dai_ops wcd937x_sdw_dai_ops = {
+ 	.hw_params = wcd937x_codec_hw_params,
+ 	.hw_free = wcd937x_codec_free,
+ 	.set_stream = wcd937x_codec_set_sdw_stream,
+ 	.get_channel_map = wcd937x_get_channel_map,
++	.mute_stream = wcd937x_codec_mute_stream,
++	.no_capture_mute = 1,
+ };
+ 
+ static struct snd_soc_dai_driver wcd937x_dais[] = {
