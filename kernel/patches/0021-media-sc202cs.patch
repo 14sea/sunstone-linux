@@ -1,0 +1,610 @@
+media: i2c: add a SmartSens SC202CS driver
+
+The SC202CS is a 2 MP sensor with a one-lane CSI-2 output; on the
+Xiaomi Redmi Note 12 5G (sunstone) it is the second rear camera. One
+mode: 1600x1200 at 30 fps from a 24 MHz clock, 720 Mbps.
+
+The register table and the exposure (0x3e00, lines * 16), gain (0x3e09
+coarse 2^n - 1, 0x3e07 fine 0x80..0xff) and frame length (0x320e)
+registers are those of the MediaTek sc202cs_mipi_raw driver in
+Motorola's kernel (GPL-2.0), mirrored and flipped as it sets them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index b8696fc63..79681fd07 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -797,6 +797,16 @@ config VIDEO_RJ54N1
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called rj54n1.
+ 
++config VIDEO_SC202CS
++	tristate "SmartSens SC202CS sensor support"
++	select V4L2_CCI_I2C
++	help
++	  This is a Video4Linux2 sensor driver for the SmartSens
++	  SC202CS camera.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called sc202cs.
++
+ config VIDEO_S5C73M3
+ 	tristate "Samsung S5C73M3 sensor support"
+ 	depends on SPI
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 18c082e44..c155d9972 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -129,6 +129,7 @@ obj-$(CONFIG_VIDEO_OV9734) += ov9734.o
+ obj-$(CONFIG_VIDEO_RDACM20) += rdacm20.o
+ obj-$(CONFIG_VIDEO_RDACM21) += rdacm21.o
+ obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
++obj-$(CONFIG_VIDEO_SC202CS) += sc202cs.o
+ obj-$(CONFIG_VIDEO_S5C73M3) += s5c73m3/
+ obj-$(CONFIG_VIDEO_S5K3M5) += s5k3m5.o
+ obj-$(CONFIG_VIDEO_S5K5BAF) += s5k5baf.o
+diff --git a/drivers/media/i2c/sc202cs.c b/drivers/media/i2c/sc202cs.c
+new file mode 100644
+index 000000000..97981ea99
+--- /dev/null
++++ b/drivers/media/i2c/sc202cs.c
+@@ -0,0 +1,558 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * SmartSens SC202CS 2 MP sensor (CSI-2 D-PHY, one lane).
++ *
++ * One mode: 1600x1200 at 30 fps from a 24 MHz clock, 720 Mbps (link frequency 360 MHz). The
++ * register table, the exposure (0x3e00, lines * 16), gain (0x3e09 coarse 2^n - 1, 0x3e07 fine
++ * 0x80..0xff) and frame length (0x320e) registers are those of the MediaTek sc202cs_mipi_raw
++ * driver in Motorola's kernel (GPL-2.0).
++ */
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++
++#define SC202CS_MCLK			24000000
++#define SC202CS_LINK_FREQ		360000000ULL
++#define SC202CS_PIXEL_RATE		72000000ULL
++
++#define SC202CS_REG_CHIP_ID		CCI_REG16(0x3107)
++#define SC202CS_CHIP_ID			0xeb52
++#define SC202CS_REG_SW_RESET		CCI_REG8(0x0103)
++#define SC202CS_REG_STREAM		CCI_REG8(0x0100)
++#define SC202CS_REG_EXPOSURE		CCI_REG24(0x3e00)
++#define SC202CS_REG_DGAIN_COARSE	CCI_REG8(0x3e06)
++#define SC202CS_REG_GAIN_FINE		CCI_REG8(0x3e07)
++#define SC202CS_REG_GAIN_COARSE		CCI_REG8(0x3e09)
++#define SC202CS_REG_VTS			CCI_REG16(0x320e)
++#define SC202CS_REG_FLIP_MIRROR		CCI_REG8(0x3221)
++
++#define SC202CS_VTS_MAX			0xffff
++#define SC202CS_EXPOSURE_MIN		2
++#define SC202CS_EXPOSURE_MARGIN		6
++/* in 1/128: 1x .. 32x coarse times 1x .. 1.99x fine */
++#define SC202CS_GAIN_MIN		128
++#define SC202CS_GAIN_MAX		(32 * 255)
++
++#define SC202CS_WIDTH			1600
++#define SC202CS_HEIGHT			1200
++#define SC202CS_HTS			1920
++#define SC202CS_VTS			1250
++
++/* the vendor table without its software reset, stream on/off, exposure and gain */
++static const struct reg_sequence sc202cs_init_regs[] = {
++	{ 0x36e9, 0x80 }, { 0x36e9, 0x24 }, { 0x301f, 0x01 }, { 0x3301, 0xff },
++	{ 0x3304, 0x68 }, { 0x3306, 0x40 }, { 0x3308, 0x08 }, { 0x3309, 0xa8 },
++	{ 0x330b, 0xb0 }, { 0x330c, 0x18 }, { 0x330d, 0xff }, { 0x330e, 0x20 },
++	{ 0x331e, 0x59 }, { 0x331f, 0x99 }, { 0x3333, 0x10 }, { 0x335e, 0x06 },
++	{ 0x335f, 0x08 }, { 0x3364, 0x1f }, { 0x337c, 0x02 }, { 0x337d, 0x0a },
++	{ 0x338f, 0xa0 }, { 0x3390, 0x01 }, { 0x3391, 0x03 }, { 0x3392, 0x1f },
++	{ 0x3393, 0xff }, { 0x3394, 0xff }, { 0x3395, 0xff }, { 0x33a2, 0x04 },
++	{ 0x33ad, 0x0c }, { 0x33b1, 0x20 }, { 0x33b3, 0x38 }, { 0x33f9, 0x40 },
++	{ 0x33fb, 0x48 }, { 0x33fc, 0x0f }, { 0x33fd, 0x1f }, { 0x349f, 0x03 },
++	{ 0x34a6, 0x03 }, { 0x34a7, 0x1f }, { 0x34a8, 0x38 }, { 0x34a9, 0x30 },
++	{ 0x34ab, 0xb0 }, { 0x34ad, 0xb0 }, { 0x34f8, 0x1f }, { 0x34f9, 0x20 },
++	{ 0x3630, 0xa0 }, { 0x3631, 0x92 }, { 0x3632, 0x64 }, { 0x3633, 0x43 },
++	{ 0x3637, 0x49 }, { 0x363a, 0x85 }, { 0x363c, 0x0f }, { 0x3650, 0x31 },
++	{ 0x3670, 0x0d }, { 0x3674, 0xc0 }, { 0x3675, 0xa0 }, { 0x3676, 0xa0 },
++	{ 0x3677, 0x92 }, { 0x3678, 0x96 }, { 0x3679, 0x9a }, { 0x367c, 0x03 },
++	{ 0x367d, 0x0f }, { 0x367e, 0x01 }, { 0x367f, 0x0f }, { 0x3698, 0x83 },
++	{ 0x3699, 0x86 }, { 0x369a, 0x8c }, { 0x369b, 0x94 }, { 0x36a2, 0x01 },
++	{ 0x36a3, 0x03 }, { 0x36a4, 0x07 }, { 0x36ae, 0x0f }, { 0x36af, 0x1f },
++	{ 0x36bd, 0x22 }, { 0x36be, 0x22 }, { 0x36bf, 0x22 }, { 0x36d0, 0x01 },
++	{ 0x370f, 0x02 }, { 0x3721, 0x6c }, { 0x3722, 0x8d }, { 0x3725, 0xc5 },
++	{ 0x3727, 0x14 }, { 0x3728, 0x04 }, { 0x37b7, 0x04 }, { 0x37b8, 0x04 },
++	{ 0x37b9, 0x06 }, { 0x37bd, 0x07 }, { 0x37be, 0x0f }, { 0x3901, 0x02 },
++	{ 0x3903, 0x40 }, { 0x3905, 0x8d }, { 0x3907, 0x00 }, { 0x3908, 0x41 },
++	{ 0x391f, 0x41 }, { 0x3933, 0x80 }, { 0x3934, 0x02 }, { 0x3937, 0x6f },
++	{ 0x393a, 0x01 }, { 0x393d, 0x01 }, { 0x393e, 0xc0 }, { 0x39dd, 0x41 },
++	{ 0x4509, 0x28 }, { 0x450d, 0x61 },
++};
++
++static const s64 sc202cs_link_freqs[] = { SC202CS_LINK_FREQ };
++
++static const char * const sc202cs_supply_names[] = {
++	"dovdd",	/* Digital I/O power */
++	"avdd",		/* Analog power (the core supply is internal) */
++};
++
++struct sc202cs {
++	struct device *dev;
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++	struct v4l2_ctrl_handler ctrl_handler;
++	struct regmap *regmap;
++
++	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *exposure;
++
++	struct clk *mclk;
++	struct gpio_desc *reset;
++	struct regulator_bulk_data supplies[ARRAY_SIZE(sc202cs_supply_names)];
++};
++
++static inline struct sc202cs *to_sc202cs(struct v4l2_subdev *sd)
++{
++	return container_of(sd, struct sc202cs, sd);
++}
++
++static int sc202cs_write_gain(struct sc202cs *sc202cs, u32 gain)
++{
++	u32 coarse = 1;
++	int ret = 0;
++
++	while (coarse < 32 && gain >= 2 * 128 * coarse)
++		coarse *= 2;
++
++	cci_write(sc202cs->regmap, SC202CS_REG_GAIN_COARSE, coarse - 1, &ret);
++	cci_write(sc202cs->regmap, SC202CS_REG_DGAIN_COARSE, 0, &ret);
++	cci_write(sc202cs->regmap, SC202CS_REG_GAIN_FINE, min(gain / coarse, 255U), &ret);
++
++	return ret;
++}
++
++static int sc202cs_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct sc202cs *sc202cs = container_of(ctrl->handler, struct sc202cs, ctrl_handler);
++	s64 exposure_max;
++	int ret = 0;
++
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		exposure_max = SC202CS_HEIGHT + ctrl->val - SC202CS_EXPOSURE_MARGIN;
++		__v4l2_ctrl_modify_range(sc202cs->exposure, sc202cs->exposure->minimum,
++					 exposure_max, sc202cs->exposure->step,
++					 min_t(s64, sc202cs->exposure->val, exposure_max));
++	}
++
++	/* applied when the sensor is powered: enable_streams sets them all up */
++	if (!pm_runtime_get_if_in_use(sc202cs->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_ANALOGUE_GAIN:
++		ret = sc202cs_write_gain(sc202cs, ctrl->val);
++		break;
++	case V4L2_CID_EXPOSURE:
++		cci_write(sc202cs->regmap, SC202CS_REG_EXPOSURE, ctrl->val << 4, &ret);
++		break;
++	case V4L2_CID_VBLANK:
++		cci_write(sc202cs->regmap, SC202CS_REG_VTS, SC202CS_HEIGHT + ctrl->val, &ret);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	}
++
++	pm_runtime_put(sc202cs->dev);
++
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops sc202cs_ctrl_ops = {
++	.s_ctrl = sc202cs_set_ctrl,
++};
++
++static int sc202cs_init_controls(struct sc202cs *sc202cs)
++{
++	struct v4l2_ctrl_handler *hdl = &sc202cs->ctrl_handler;
++	struct v4l2_fwnode_device_properties props;
++	struct v4l2_ctrl *ctrl;
++	int ret;
++
++	v4l2_ctrl_handler_init(hdl, 9);
++
++	ctrl = v4l2_ctrl_new_int_menu(hdl, &sc202cs_ctrl_ops, V4L2_CID_LINK_FREQ, 0, 0,
++				      sc202cs_link_freqs);
++	if (ctrl)
++		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	v4l2_ctrl_new_std(hdl, &sc202cs_ctrl_ops, V4L2_CID_PIXEL_RATE, SC202CS_PIXEL_RATE,
++			  SC202CS_PIXEL_RATE, 1, SC202CS_PIXEL_RATE);
++
++	ctrl = v4l2_ctrl_new_std(hdl, &sc202cs_ctrl_ops, V4L2_CID_HBLANK,
++				 SC202CS_HTS - SC202CS_WIDTH, SC202CS_HTS - SC202CS_WIDTH, 1,
++				 SC202CS_HTS - SC202CS_WIDTH);
++	if (ctrl)
++		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	sc202cs->vblank = v4l2_ctrl_new_std(hdl, &sc202cs_ctrl_ops, V4L2_CID_VBLANK,
++					    SC202CS_VTS - SC202CS_HEIGHT,
++					    SC202CS_VTS_MAX - SC202CS_HEIGHT, 1,
++					    SC202CS_VTS - SC202CS_HEIGHT);
++
++	sc202cs->exposure = v4l2_ctrl_new_std(hdl, &sc202cs_ctrl_ops, V4L2_CID_EXPOSURE,
++					      SC202CS_EXPOSURE_MIN,
++					      SC202CS_VTS - SC202CS_EXPOSURE_MARGIN, 1,
++					      SC202CS_VTS - SC202CS_EXPOSURE_MARGIN);
++
++	v4l2_ctrl_new_std(hdl, &sc202cs_ctrl_ops, V4L2_CID_ANALOGUE_GAIN, SC202CS_GAIN_MIN,
++			  SC202CS_GAIN_MAX, 1, SC202CS_GAIN_MIN);
++
++	ret = v4l2_fwnode_device_parse(sc202cs->dev, &props);
++	if (ret)
++		return ret;
++
++	v4l2_ctrl_new_fwnode_properties(hdl, &sc202cs_ctrl_ops, &props);
++
++	if (hdl->error)
++		return hdl->error;
++
++	sc202cs->sd.ctrl_handler = hdl;
++
++	return 0;
++}
++
++static void sc202cs_fill_format(struct v4l2_mbus_framefmt *fmt)
++{
++	fmt->width = SC202CS_WIDTH;
++	fmt->height = SC202CS_HEIGHT;
++	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
++	fmt->field = V4L2_FIELD_NONE;
++	fmt->colorspace = V4L2_COLORSPACE_RAW;
++}
++
++static int sc202cs_enable_streams(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++				  u32 pad, u64 streams_mask)
++{
++	struct sc202cs *sc202cs = to_sc202cs(sd);
++	int ret;
++
++	ret = pm_runtime_resume_and_get(sc202cs->dev);
++	if (ret)
++		return ret;
++
++	ret = cci_write(sc202cs->regmap, SC202CS_REG_SW_RESET, 1, NULL);
++	if (ret)
++		goto out;
++	usleep_range(10000, 11000);
++
++	ret = regmap_multi_reg_write(sc202cs->regmap, sc202cs_init_regs,
++				     ARRAY_SIZE(sc202cs_init_regs));
++	/* mirrored and flipped, as the vendor driver: BGGR */
++	cci_write(sc202cs->regmap, SC202CS_REG_FLIP_MIRROR, 0x66, &ret);
++	if (ret) {
++		dev_err(sc202cs->dev, "failed to write the mode: %d\n", ret);
++		goto out;
++	}
++
++	ret = __v4l2_ctrl_handler_setup(sc202cs->sd.ctrl_handler);
++	if (ret)
++		goto out;
++
++	ret = cci_write(sc202cs->regmap, SC202CS_REG_STREAM, 1, NULL);
++out:
++	if (ret)
++		pm_runtime_put(sc202cs->dev);
++
++	return ret;
++}
++
++static int sc202cs_disable_streams(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++				   u32 pad, u64 streams_mask)
++{
++	struct sc202cs *sc202cs = to_sc202cs(sd);
++
++	cci_write(sc202cs->regmap, SC202CS_REG_STREAM, 0, NULL);
++	pm_runtime_put(sc202cs->dev);
++
++	return 0;
++}
++
++static int sc202cs_power_off(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct sc202cs *sc202cs = to_sc202cs(sd);
++
++	gpiod_set_value_cansleep(sc202cs->reset, 1);
++	clk_disable_unprepare(sc202cs->mclk);
++	regulator_bulk_disable(ARRAY_SIZE(sc202cs->supplies), sc202cs->supplies);
++
++	return 0;
++}
++
++static int sc202cs_power_on(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct sc202cs *sc202cs = to_sc202cs(sd);
++	int ret;
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(sc202cs->supplies), sc202cs->supplies);
++	if (ret) {
++		dev_err(dev, "failed to enable regulators: %d\n", ret);
++		return ret;
++	}
++
++	ret = clk_prepare_enable(sc202cs->mclk);
++	if (ret) {
++		dev_err(dev, "failed to enable the clock: %d\n", ret);
++		regulator_bulk_disable(ARRAY_SIZE(sc202cs->supplies), sc202cs->supplies);
++		return ret;
++	}
++
++	usleep_range(1000, 1100);
++	gpiod_set_value_cansleep(sc202cs->reset, 0);
++	usleep_range(5000, 5500);
++
++	return 0;
++}
++
++static int sc202cs_set_format(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++			      struct v4l2_subdev_format *fmt)
++{
++	sc202cs_fill_format(&fmt->format);
++	*v4l2_subdev_state_get_format(state, fmt->pad) = fmt->format;
++
++	return 0;
++}
++
++static int sc202cs_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index > 0)
++		return -EINVAL;
++
++	code->code = MEDIA_BUS_FMT_SBGGR10_1X10;
++
++	return 0;
++}
++
++static int sc202cs_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++				   struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->index > 0 || fse->code != MEDIA_BUS_FMT_SBGGR10_1X10)
++		return -EINVAL;
++
++	fse->min_width = SC202CS_WIDTH;
++	fse->max_width = SC202CS_WIDTH;
++	fse->min_height = SC202CS_HEIGHT;
++	fse->max_height = SC202CS_HEIGHT;
++
++	return 0;
++}
++
++static int sc202cs_get_selection(struct v4l2_subdev *sd, struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.left = 0;
++		sel->r.top = 0;
++		sel->r.width = SC202CS_WIDTH;
++		sel->r.height = SC202CS_HEIGHT;
++		return 0;
++	}
++
++	return -EINVAL;
++}
++
++static int sc202cs_init_state(struct v4l2_subdev *sd, struct v4l2_subdev_state *state)
++{
++	sc202cs_fill_format(v4l2_subdev_state_get_format(state, 0));
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops sc202cs_video_ops = {
++	.s_stream = v4l2_subdev_s_stream_helper,
++};
++
++static const struct v4l2_subdev_pad_ops sc202cs_pad_ops = {
++	.set_fmt = sc202cs_set_format,
++	.get_fmt = v4l2_subdev_get_fmt,
++	.enum_mbus_code = sc202cs_enum_mbus_code,
++	.enum_frame_size = sc202cs_enum_frame_size,
++	.get_selection = sc202cs_get_selection,
++	.enable_streams = sc202cs_enable_streams,
++	.disable_streams = sc202cs_disable_streams,
++};
++
++static const struct v4l2_subdev_ops sc202cs_subdev_ops = {
++	.video = &sc202cs_video_ops,
++	.pad = &sc202cs_pad_ops,
++};
++
++static const struct media_entity_operations sc202cs_entity_ops = {
++	.link_validate = v4l2_subdev_link_validate,
++};
++
++static const struct v4l2_subdev_internal_ops sc202cs_internal_ops = {
++	.init_state = sc202cs_init_state,
++};
++
++static int sc202cs_check_hwcfg(struct sc202cs *sc202cs)
++{
++	struct v4l2_fwnode_endpoint bus_cfg = { .bus_type = V4L2_MBUS_CSI2_DPHY };
++	struct device *dev = sc202cs->dev;
++	struct fwnode_handle *ep;
++	unsigned long bitmap;
++	int ret;
++
++	ep = fwnode_graph_get_endpoint_by_id(dev_fwnode(dev), 0, 0, 0);
++	if (!ep)
++		return dev_err_probe(dev, -EPROBE_DEFER, "waiting for the endpoint\n");
++
++	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus_cfg);
++	fwnode_handle_put(ep);
++	if (ret)
++		return dev_err_probe(dev, ret, "parsing the endpoint failed\n");
++
++	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 1) {
++		ret = dev_err_probe(dev, -EINVAL, "%u data lanes, only one is supported\n",
++				    bus_cfg.bus.mipi_csi2.num_data_lanes);
++		goto out;
++	}
++
++	ret = v4l2_link_freq_to_bitmap(dev, bus_cfg.link_frequencies,
++				       bus_cfg.nr_of_link_frequencies, sc202cs_link_freqs,
++				       ARRAY_SIZE(sc202cs_link_freqs), &bitmap);
++out:
++	v4l2_fwnode_endpoint_free(&bus_cfg);
++	return ret;
++}
++
++static void sc202cs_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct sc202cs *sc202cs = to_sc202cs(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(sd->ctrl_handler);
++	pm_runtime_disable(sc202cs->dev);
++	if (!pm_runtime_status_suspended(sc202cs->dev)) {
++		sc202cs_power_off(sc202cs->dev);
++		pm_runtime_set_suspended(sc202cs->dev);
++	}
++}
++
++static int sc202cs_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct sc202cs *sc202cs;
++	u64 id;
++	int i, ret;
++
++	sc202cs = devm_kzalloc(dev, sizeof(*sc202cs), GFP_KERNEL);
++	if (!sc202cs)
++		return -ENOMEM;
++	sc202cs->dev = dev;
++
++	sc202cs->mclk = devm_v4l2_sensor_clk_get(dev, NULL);
++	if (IS_ERR(sc202cs->mclk))
++		return dev_err_probe(dev, PTR_ERR(sc202cs->mclk), "no clock\n");
++	if (clk_get_rate(sc202cs->mclk) != SC202CS_MCLK)
++		return dev_err_probe(dev, -EINVAL, "clock %lu Hz, not %u\n",
++				     clk_get_rate(sc202cs->mclk), SC202CS_MCLK);
++
++	v4l2_i2c_subdev_init(&sc202cs->sd, client, &sc202cs_subdev_ops);
++
++	ret = sc202cs_check_hwcfg(sc202cs);
++	if (ret)
++		return ret;
++
++	sc202cs->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(sc202cs->reset))
++		return dev_err_probe(dev, PTR_ERR(sc202cs->reset), "no reset gpio\n");
++
++	for (i = 0; i < ARRAY_SIZE(sc202cs_supply_names); i++)
++		sc202cs->supplies[i].supply = sc202cs_supply_names[i];
++	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(sc202cs->supplies), sc202cs->supplies);
++	if (ret)
++		return dev_err_probe(dev, ret, "no supplies\n");
++
++	sc202cs->regmap = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(sc202cs->regmap))
++		return PTR_ERR(sc202cs->regmap);
++
++	ret = sc202cs_power_on(dev);
++	if (ret)
++		return ret;
++
++	ret = cci_read(sc202cs->regmap, SC202CS_REG_CHIP_ID, &id, NULL);
++	if (!ret && id != SC202CS_CHIP_ID) {
++		dev_err(dev, "chip id 0x%06llx, not 0x%06x\n", id, SC202CS_CHIP_ID);
++		ret = -ENXIO;
++	}
++	if (ret)
++		goto power_off;
++
++	ret = sc202cs_init_controls(sc202cs);
++	if (ret) {
++		dev_err(dev, "failed to init controls: %d\n", ret);
++		goto free_ctrls;
++	}
++
++	sc202cs->sd.internal_ops = &sc202cs_internal_ops;
++	sc202cs->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	sc202cs->sd.entity.ops = &sc202cs_entity_ops;
++	sc202cs->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	sc202cs->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&sc202cs->sd.entity, 1, &sc202cs->pad);
++	if (ret)
++		goto free_ctrls;
++
++	sc202cs->sd.state_lock = sc202cs->ctrl_handler.lock;
++	ret = v4l2_subdev_init_finalize(&sc202cs->sd);
++	if (ret)
++		goto cleanup_entity;
++
++	pm_runtime_set_active(dev);
++	pm_runtime_enable(dev);
++
++	ret = v4l2_async_register_subdev_sensor(&sc202cs->sd);
++	if (ret) {
++		dev_err(dev, "failed to register the subdev: %d\n", ret);
++		goto cleanup_subdev;
++	}
++
++	pm_runtime_idle(dev);
++
++	return 0;
++
++cleanup_subdev:
++	pm_runtime_disable(dev);
++	pm_runtime_set_suspended(dev);
++	v4l2_subdev_cleanup(&sc202cs->sd);
++cleanup_entity:
++	media_entity_cleanup(&sc202cs->sd.entity);
++free_ctrls:
++	v4l2_ctrl_handler_free(&sc202cs->ctrl_handler);
++power_off:
++	sc202cs_power_off(dev);
++
++	return ret;
++}
++
++static DEFINE_RUNTIME_DEV_PM_OPS(sc202cs_pm_ops, sc202cs_power_off, sc202cs_power_on, NULL);
++
++static const struct of_device_id sc202cs_of_match[] = {
++	{ .compatible = "smartsens,sc202cs" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sc202cs_of_match);
++
++static struct i2c_driver sc202cs_driver = {
++	.driver = {
++		.name = "sc202cs",
++		.pm = pm_ptr(&sc202cs_pm_ops),
++		.of_match_table = sc202cs_of_match,
++	},
++	.probe = sc202cs_probe,
++	.remove = sc202cs_remove,
++};
++module_i2c_driver(sc202cs_driver);
++
++MODULE_DESCRIPTION("SmartSens SC202CS sensor driver");
++MODULE_LICENSE("GPL");

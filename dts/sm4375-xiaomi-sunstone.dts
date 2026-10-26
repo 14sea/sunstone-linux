@@ -45,7 +45,7 @@
  * - Cameras: CCI0/CCI1 and CAMSS (TFE530/CSID530 as qcm2290's, CSIPHY 1.2.1; kernel/patches/0018)
  *   with the downstream DT's values. The sensors' cores and analog parts are on a WL2866D (i2c10,
  *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0 0x10, CSIPHY0, 0020),
- *   SC202CS 2 MP (cci1 0x36, no driver yet), OV08D10 front (cci1 0x10, CSIPHY3).
+ *   SC202CS 2 MP (cci1 0x36, CSIPHY2, 0021), OV08D10 front (cci1 0x10, CSIPHY3).
  *
  * clk_ignore_unused and pd_ignore_unused (bootargs) keep GCC/RPM from switching off what ABL left
  * running.
@@ -1320,6 +1320,38 @@
 			 * 270 (Android's, which for a front camera turns the other way): the V4L2 rotation
 			 * is 90 (GNOME Snapshot upright in portrait; with 270 it was upside down).
 			 */
+			/*
+			 * the second rear camera, SmartSens SC202CS (2 MP, chip id 0xeb52): downstream
+			 * sensor 1 on CSIPHY2, one lane, MCLK2 at 24 MHz, reset GPIO36. Analog 2.8 V =
+			 * WL2866D LDO4 (its core supply is internal). This module is monochrome (stock
+			 * has a depth and a macro SC202CS module; raw frames of a coloured scene have the
+			 * four Bayer sites equal within 1 %, the main camera's 1.66 G/B): the driver still
+			 * reports SBGGR10, libcamera's soft ISP makes it a grey picture. Rotation 90, as
+			 * the front camera's (270 is upside down).
+			 */
+			macro_cam: camera@36 {
+				compatible = "smartsens,sc202cs";
+				reg = <0x36>;
+				clocks = <&gcc GCC_CAMSS_MCLK2_CLK>;
+				assigned-clocks = <&gcc GCC_CAMSS_MCLK2_CLK>;
+				assigned-clock-rates = <24000000>;
+				reset-gpios = <&tlmm 36 GPIO_ACTIVE_LOW>;
+				dovdd-supply = <&cam_vio>;
+				avdd-supply = <&cam_avdd2>;
+				pinctrl-0 = <&cam_mclk2_default &cam_reset2_default>;
+				pinctrl-names = "default";
+				orientation = <1>;
+				rotation = <90>;
+
+				port {
+					macro_cam_ep: endpoint {
+						data-lanes = <1>;
+						link-frequencies = /bits/ 64 <360000000>;
+						remote-endpoint = <&camss_csiphy2_ep>;
+					};
+				};
+			};
+
 			front_cam: camera@10 {
 				compatible = "ovti,ov08d10";
 				reg = <0x10>;
@@ -1438,6 +1470,15 @@
 				camss_csiphy0_ep: endpoint {
 					data-lanes = <0 1 2 3>;
 					remote-endpoint = <&main_cam_ep>;
+				};
+			};
+
+			port@2 {
+				reg = <2>;
+
+				camss_csiphy2_ep: endpoint {
+					data-lanes = <0>;
+					remote-endpoint = <&macro_cam_ep>;
 				};
 			};
 
@@ -1751,6 +1792,13 @@
 
 	cam_reset0_default: cam-reset0-default-state {
 		pins = "gpio34";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_reset2_default: cam-reset2-default-state {
+		pins = "gpio36";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;

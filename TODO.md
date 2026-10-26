@@ -357,7 +357,9 @@
         MTK ov48b2q_mipi_raw 的表，一個模式 4000x3000 30 fps（軟件 ISP 15 fps）；rotation 270。用户確認方向正確、有點糊。
   - [ ] 主攝：小一點的模式（2000x1500 或 1080p，軟件 ISP 跟得上 30 fps）；對焦馬達沒應答（`cam_vaf_ldo` 原廠是固定
         穩壓器，GPIO50 `CAM_VAF0`），所以只有固定焦距；EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
-  - [ ] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，MCLK2 24 MHz，復位 GPIO36，LDO4）：主線沒有驅動。
+  - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
+        MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報
+        SBGGR10，軟件 ISP 出灰度畫面。用户確認方向正確、黑白。
   - [ ] 閃光燈（原廠 `qcom,camera-flash`，GPIO38/51）、對焦馬達（`cam_vaf_ldo`）。cci0 主機 1 的 0x64 只有 8 位寄存器、
         不用 WL2866D 供電，大概是空着的傳感器 3 的 EEPROM。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
