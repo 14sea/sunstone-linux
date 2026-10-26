@@ -351,7 +351,8 @@
 - [ ] 攝像頭（2026-10-26 開始，boot-154–157）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
       的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018），沒有 interconnect。
   - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
-        RAW10 抓幀、libcamera simple 管線 + 軟件 ISP 1632x1224 約 29 fps，PipeWire / GNOME 相機（Snapshot）。
+        RAW10 抓幀、libcamera simple 管線 + 軟件 ISP（1632x1224 約 29 fps，3200x2400 30 fps，緩衝區在 system dma-heap），
+        PipeWire / GNOME 相機（Snapshot，用户確認豎屏方向正確；橫屏差 90°，是 Snapshot 不管屏幕旋轉）。
   - [ ] 主攝 OV48B2Q（cci0 主機 0 的 0x10，CSIPHY0，4 lane，MCLK0，復位 GPIO34，LDO1 + LDO3，帶 EEPROM 0x51 和對焦馬達）：
         主線沒有驅動，要寫（寄存器表參考 MTK 的 ov48b2q_mipi_raw 或原廠 sensormodule .bin）。
   - [ ] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，MCLK2 24 MHz，復位 GPIO36，LDO4）：主線沒有驅動。

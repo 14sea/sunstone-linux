@@ -1,3 +1,6 @@
-# sunstone: libcamera's software ISP allocates its buffers from the dma-buf heaps (root-only by
-# default): to the video group and the seat's user, like the camera's V4L2 and media devices
-SUBSYSTEM=="dma_heap", GROUP="video", MODE="0660", TAG+="uaccess"
+# sunstone: libcamera's software ISP allocates its buffers from a dma-buf heap (root-only by default):
+# the system heap to the video group and the seat's user, like the camera's V4L2 and media devices.
+# Not the CMA heaps, which libcamera tries first: at full size (3200x2400 XRGB, 30 MB a frame) CMA
+# runs out and the stream fails (boot-158, GNOME Snapshot "could not play camera stream"). The
+# buffers need not be contiguous: the GPU and the display reach them through the SMMU.
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660", TAG+="uaccess"
