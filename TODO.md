@@ -252,7 +252,7 @@
       漫遊註冊在 LTE B3（20 MHz，RSRP −99 dBm，SNR 15.6 dB）。NetworkManager 連接 `1nce`（APN `iot.1nce.net`，只 IPv4，
       不自動連接、`ipv4.never-default`：這張卡流量很少）→ `qmapmux0.0@rmnet_ipa0`，經它 ping 8.8.8.8 4/4（約 90 ms）。
       modem 沒有 LTE-M/NB-IoT（DMS 能力只有 gsm/umts/lte/5gnr），LTE 硬件頻段 1/3/5/7/8/34/38–41（沒有 B20/B28）。
-      剩下：短信（MM 報存儲 sm/me，從 1NCE 後台發一條試）、新鏡像沒有 NetworkManager（build-rootfs 用 networkd）時怎麼撥號
+      剩下：短信（MM 報存儲 sm/me；1NCE 卡的短信額度已用完，後台發不出，2026-10-26 沒測成，要換卡或等額度）、新鏡像沒有 NetworkManager（build-rootfs 用 networkd）時怎麼撥號
       （mmcli --simple-connect + networkd 配地址，或換 NM）；通話要音頻。
       已知：`ipa: unexpected init_completed response`：ipa 是模塊，modem（內置 PAS 驅動）在 rootfs 掛載後先開始上電，ipa 錯過
       BEFORE_POWERUP，沒有拿 uC 的代理電源引用。影響只有 uC 的寄存器保持（要 AOSS QMP，這顆 RPM 架構的 SoC 沒有，函數直接
