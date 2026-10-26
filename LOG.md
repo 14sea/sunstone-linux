@@ -120,3 +120,4 @@
 | — | 2026-10-26 | boot-149 上：UCM 加 Headphones；耳機插孔 | 插耳機沒反應：WCD 中斷計數 0；`power/control=on` 讓 TX SoundWire 不休眠後積壓的中斷立刻上來、耳機被認出（52/53 Ω），重插實時檢測。耳機播放用户聽到，但結尾有爆音（揚聲器路徑關掉後仍有，是耳機） | — |
 | 150 | 2026-10-26 | 本地補丁 0014（wcd937x mute_stream 先關 HPH/EAR PA）；swr0 加 `swr_wake_irq`（TLMM 128）；UCM 加 Headset mic；內核 `g08b2394beba5`；`7d069b424a60054c` | 總線休眠時插拔也即時檢測（wake IRQ 計數隨插拔增加）；耳機 −70 dBFS 測試音用户聽到、沒有爆音 | — |
 | — | 2026-10-26 | boot-150 上：聽筒（UCM Earpiece，`EAR_PA Volume` 8 測試）；逐項排查 | 第一次「能聽到」是揚聲器路徑還開着；只走聽筒時用户聽到「噠噠噠」；HPHL PDM 看門狗 33 次 → 加 `HPHL Switch` 後不再觸發但仍無聲；CLS_H_NORMAL/ULP、`HPHL_COMP Switch`、改用 RX3 數據都無聲（頂部麥克風錄不到 1 kHz）。聽筒暫停，UCM 不放 Earpiece | — |
+| — | 2026-10-26 | boot-150 上：`sunstone-sonar`（超聲波測距，實驗版）；`python3-numpy` | 掃頻：揚聲器 → 主麥 18–21 kHz SNR 約 30 dB。10 ms chirp 時直達聲 61 dB 高於底噪但 0.2–2 m 全是 −26 dB 的背景；2 ms 也一樣（是反射不是旁瓣）。背景相減後靜止底 −43 dB；書 50 cm 回波 0.49/1.02/1.57 m，30 cm 0.62/0.92 m（倍數），間距法給出 0.280 m；重複測量受周圍走動影響大 | — |

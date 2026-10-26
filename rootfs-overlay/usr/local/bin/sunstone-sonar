@@ -1,0 +1,184 @@
+#!/usr/bin/python3 -I
+"""sunstone: ultrasonic ranging with the speaker and the main microphone (both at the bottom edge).
+
+Plays a train of short 18-21 kHz chirps on the default PipeWire sink (the speaker; most adults do
+not hear it) while recording the default source (the main microphone), matched-filters the
+recording with the chirp, lines the chirps up on the speaker -> microphone direct sound, averages
+them, and reports the echoes after it: distance = delay * c / 2. Point the bottom edge at the
+object. Measured on the phone (2026-10-26): speaker -> bottom microphone +10..+15 dB at 18-21 kHz
+relative to the signal, SNR about 30 dB at -46 dB.
+
+  sunstone-sonar [-n CHIRPS] [-d CHIRP_MS] [-l LEVEL_DBFS] [--min M] [--max M] [--temp C] [--plot]
+  sunstone-sonar --calibrate    (the same scene without the object: its echoes are subtracted after)
+On a table the phone hears the table, the room and itself about 25 dB below the direct sound,
+above an object half a metre away: calibrate first, without the object, and do not move the phone.
+The background is the averaged matched filter output, lined up on the direct sound (playback and
+capture share the codec's clock, so it repeats to the sample), kept in ~/.cache/sunstone-sonar.npy.
+Flat on a table, sound bounces between the object and the phone: its echoes come at 1, 2, 3 times
+its distance (a book at 30 cm: 0.62 and 0.92 m, the first one under the direct sound's remains),
+so the distance reported is the spacing that explains the most echoes as multiples.
+Run as the desktop user (its PipeWire); as root it runs itself as that user (uid 1000). The sink's
+volume is set to 100% for the measurement and put back after it.
+"""
+import argparse, os, pwd, subprocess, sys, tempfile, wave
+
+import numpy as np
+
+RATE = 48000
+F0, F1 = 18000, 21000
+PERIOD_S = 0.150
+
+
+def as_desktop_user():
+    if os.getuid() != 0:
+        return
+    pw = pwd.getpwuid(1000)
+    env = dict(os.environ, XDG_RUNTIME_DIR=f'/run/user/{pw.pw_uid}', HOME=pw.pw_dir, USER=pw.pw_name)
+    os.execvpe('runuser', ['runuser', '-u', pw.pw_name, '--', sys.executable, '-I'] + sys.argv, env)
+
+
+def chirp(dur):
+    t = np.arange(int(dur * RATE)) / RATE
+    x = np.sin(2 * np.pi * (F0 * t + (F1 - F0) / (2 * dur) * t * t))
+    return x * np.hanning(len(x))
+
+
+def envelope(x):
+    n = 1 << int(np.ceil(np.log2(len(x))))
+    X = np.fft.fft(x, n)
+    h = np.zeros(n); h[0] = 1; h[1:n // 2] = 2; h[n // 2] = 1
+    return np.abs(np.fft.ifft(X * h))[:len(x)]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('-n', type=int, default=24, help='chirps (default 24)')
+    ap.add_argument('-d', type=float, default=2.0,
+                    help='chirp length, ms (default 2: its matched filter sidelobes reach c*d/2, 34 cm)')
+    ap.add_argument('-l', type=float, default=-30, help='chirp level, dBFS (default -30)')
+    ap.add_argument('--min', type=float, default=0.10, help='nearest distance reported, m (default 0.10)')
+    ap.add_argument('--max', type=float, default=3.0, help='farthest distance reported, m (default 3)')
+    ap.add_argument('--temp', type=float, default=20.0, help='air temperature, C (default 20)')
+    ap.add_argument('--plot', action='store_true', help='print the echo profile')
+    ap.add_argument('--calibrate', action='store_true', help='record the background (no object)')
+    ap.add_argument('--raw', action='store_true', help='do not subtract the background')
+    a = ap.parse_args()
+    as_desktop_user()
+    c = 331.3 + 0.606 * a.temp
+
+    ref = chirp(a.d / 1000)
+    period = int(PERIOD_S * RATE)
+    train = np.zeros(int(0.3 * RATE) + a.n * period + int(0.3 * RATE))
+    for k in range(a.n):
+        i = int(0.3 * RATE) + k * period
+        train[i:i + len(ref)] += ref * 10 ** (a.l / 20)
+
+    with tempfile.TemporaryDirectory() as d:
+        play, rec = os.path.join(d, 'play.wav'), os.path.join(d, 'rec.wav')
+        with wave.open(play, 'wb') as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
+            w.writeframes((train * 32767).astype('<i2').tobytes())
+        vol = subprocess.run(['wpctl', 'get-volume', '@DEFAULT_AUDIO_SINK@'], capture_output=True,
+                             text=True).stdout.split()
+        old = vol[1] if len(vol) > 1 else None
+        subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '1.0'])
+        r = subprocess.Popen(['pw-record', '--rate', str(RATE), '--channels', '1', '--format', 's16', rec],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run(['sleep', '0.3'])
+            subprocess.run(['pw-play', '--volume', '1.0', play], check=True)
+            subprocess.run(['sleep', '0.4'])
+        finally:
+            r.send_signal(2)
+            r.wait()
+            if old:
+                subprocess.run(['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', old])
+        with wave.open(rec) as w:
+            y = np.frombuffer(w.readframes(w.getnframes()), '<i2') / 32768
+
+    # matched filter, then each chirp's window aligned on its direct sound (the strongest peak)
+    mfr = np.convolve(y, ref[::-1], 'same')
+    mf = envelope(mfr)
+    thr = mf.max() * 0.3
+    starts, i = [], 0
+    while i < len(mf):
+        if mf[i] > thr:
+            j = i + int(0.002 * RATE)
+            p = i + int(np.argmax(mf[i:j]))
+            starts.append(p)
+            i = p + int(0.8 * period)
+        else:
+            i += 1
+    if len(starts) < max(2, a.n // 2):
+        sys.exit(f'only {len(starts)} of {a.n} chirps found: is the speaker the default output?')
+    win = int(2 * a.max / c * RATE) + int(0.002 * RATE)
+    pre = int(0.001 * RATE)
+    wave_ = np.mean([mfr[s - pre:s + win] / mf[s] for s in starts if s >= pre and s + win <= len(mf)], axis=0)
+    cal = os.path.expanduser('~/.cache/sunstone-sonar.npy')
+    if a.calibrate:
+        os.makedirs(os.path.dirname(cal), exist_ok=True)
+        np.save(cal, np.concatenate([[a.d, a.max], wave_]))
+        print(f'{len(starts)} chirps: background saved in {cal}')
+        return
+    if not a.raw:
+        if not os.path.exists(cal):
+            sys.exit(f'no background: run sunstone-sonar --calibrate first (or --raw)')
+        b = np.load(cal)
+        if b[0] != a.d or b[1] != a.max or len(b) - 2 != len(wave_):
+            sys.exit('the background was recorded with other -d/--max: calibrate again')
+        wave_ = wave_ - b[2:]
+    prof = envelope(wave_)[pre:]
+
+    dist = np.arange(len(prof)) / RATE * c / 2
+    ok = dist >= a.min
+    # the direct sound's own decay sets the floor: echoes are what rises above its tail
+    floor = np.median(prof[ok]) * 3
+    peaks = [k for k in range(1, len(prof) - 1) if ok[k] and prof[k] > floor
+             and prof[k] >= prof[k - 1] and prof[k] >= prof[k + 1]]
+    peaks.sort(key=lambda k: -prof[k])
+    best = []
+    for k in peaks:
+        if all(abs(k - b) > int(0.0006 * RATE) for b in best):
+            best.append(k)
+        if len(best) == 6:
+            break
+    noise = np.median(mf[:int(0.25 * RATE)])
+    print(f'{len(starts)} chirps, c = {c:.1f} m/s, direct sound {20*np.log10(np.mean([mf[s] for s in starts]) / noise):.0f} dB'
+          f' above the noise, echo floor {20*np.log10(floor):.0f} dB{"" if a.raw else " (background subtracted)"}')
+    if not best:
+        print(f'no echo between {a.min:.2f} and {a.max:.2f} m')
+    echoes = []
+    for k in sorted(best):
+        # parabolic interpolation of the peak
+        y0, y1, y2 = prof[k - 1], prof[k], prof[k + 1]
+        dk = 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) if (y0 - 2 * y1 + y2) else 0
+        echoes.append(((k + dk) / RATE * c / 2, y1))
+        print(f'echo at {echoes[-1][0]:.3f} m  (strength {20*np.log10(y1):.1f} dB below the direct sound)')
+    # the object: the largest spacing whose multiples (1x, 2x, ...) explain the most echo strength
+    tol = 0.04
+    fit = []
+    for sp in np.arange(a.min, a.max, 0.002):
+        hits = [(e, w) for e, w in echoes if round(e / sp) >= 1 and abs(e - round(e / sp) * sp) < tol]
+        # a series starts at 1x or 2x (the first can hide under the direct sound): no subharmonics
+        if len(hits) >= 2 and min(round(e / sp) for e, _ in hits) <= 2:
+            fit.append((sum(w for _, w in hits), len(hits), sp, hits))
+    if fit:
+        top = max(f[0] for f in fit)
+        _, n, sp, hits = max((f for f in fit if f[0] > 0.9 * top), key=lambda f: (f[1], f[2]))
+        # refine: least squares over the echoes it explains
+        ks = np.array([round(e / sp) for e, _ in hits]); es = np.array([e for e, _ in hits])
+        sp = float((ks * es).sum() / (ks * ks).sum())
+        print(f'object at {sp:.3f} m (echoes {", ".join(f"{int(k)}x" for k in ks)})')
+    elif echoes:
+        print(f'object at {max(echoes, key=lambda e: e[1])[0]:.3f} m (strongest echo; no multiples)')
+    if a.plot:
+        step = max(1, len(prof) // 60)
+        for k in range(0, len(prof), step):
+            if dist[k] < a.min:
+                continue
+            v = prof[k:k + step].max()
+            print(f'{dist[k]:6.2f} m {"#" * int(max(0, 60 + 20 * np.log10(max(v, 1e-6))) / 1.5)}')
+
+
+if __name__ == '__main__':
+    main()
