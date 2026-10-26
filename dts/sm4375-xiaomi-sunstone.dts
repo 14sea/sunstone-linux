@@ -162,6 +162,24 @@
 		pinctrl-names = "default";
 	};
 
+	/*
+	 * the main camera's AF actuator supply, switched by GPIO50 (downstream CAM_VAF0 of
+	 * qcom,actuator0, its cam_vaf_ldo a fixed 2.8 V). From cam_vio: the actuator shares the
+	 * main camera's I2C bus, whose pull-ups are on cam_vio, and is powered without the sensor
+	 */
+	cam_vaf: cam-vaf-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_vaf";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		gpio = <&tlmm 50 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&cam_vio>;
+		pinctrl-0 = <&cam_vaf_default>;
+		pinctrl-names = "default";
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 		label = "gpio-keys";
@@ -1252,13 +1270,25 @@
 			#size-cells = <0>;
 
 			/*
+			 * the main camera's AF actuator, Dongwoon DW9800W (stock CamX module data
+			 * "dw9800w"; register 0 reads 0xf2): its init there is DW9800K's (control 0x02,
+			 * mode 0x40 = SAC 1), the VCM frequency register left at its 0x60
+			 */
+			main_vcm: actuator@c {
+				compatible = "dongwoon,dw9800k";
+				reg = <0x0c>;
+				vdd-supply = <&cam_vaf>;
+				dongwoon,vcm-prescale = <0x60>;
+			};
+
+			/*
 			 * the main camera, OmniVision OV48B2Q (chip id 0x564842; it answers at 0x21
 			 * too): downstream sensor 0 on CSIPHY0, four lanes, MCLK0, reset GPIO34. 24 MHz
 			 * instead of downstream's 19.2: the register tables (kernel/patches/0020) are
 			 * for 24. Core 1.05 V = WL2866D LDO1, analog 2.8 V = LDO3. Its EEPROM is at
-			 * 0x51; the AF actuator (cam_vaf_ldo) did not answer and is left out. Rotation
-			 * 270, not downstream's 90: the vendor table reads the array out the other way
-			 * round (GNOME Snapshot upside down with 90).
+			 * 0x51, its AF actuator at 0x0c. Rotation 270, not downstream's 90: the vendor
+			 * table reads the array out the other way round (GNOME Snapshot upside down
+			 * with 90).
 			 */
 			main_cam: camera@10 {
 				compatible = "ovti,ov48b2q";
@@ -1274,6 +1304,7 @@
 				pinctrl-names = "default";
 				orientation = <1>;
 				rotation = <270>;
+				lens-focus = <&main_vcm>;
 
 				port {
 					main_cam_ep: endpoint {
@@ -1813,6 +1844,13 @@
 
 	cam_vio_default: cam-vio-default-state {
 		pins = "gpio38";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_vaf_default: cam-vaf-default-state {
+		pins = "gpio50";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;

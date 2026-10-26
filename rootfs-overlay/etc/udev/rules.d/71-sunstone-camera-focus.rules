@@ -1,0 +1,5 @@
+# sunstone: libcamera's software ISP has no autofocus, so the main camera's lens stays where its
+# actuator (DW9800, driver dw9719) is told: about the far focus. Measured on a far scene (boot-164):
+# the lens moves above about 350 (0-320 all the same, its rest), sharpest at 464-480. The driver
+# keeps the value and moves the lens there whenever the camera is in use.
+ACTION=="add", SUBSYSTEM=="video4linux", ATTR{name}=="dw9719 *", RUN+="/usr/bin/v4l2-ctl -d $devnode -c focus_absolute=480"
