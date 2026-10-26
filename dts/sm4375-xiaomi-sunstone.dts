@@ -202,13 +202,14 @@
 				/*
 				 * microphones (stock mixer paths): AMIC1 the main one (ADC1), AMIC3 the second
 				 * (ADC2 INP3), AMIC2 the headset's (ADC2 INP2, MIC BIAS2 at 2.2 V); ADC1 comes
-				 * in on the TX SoundWire's port 1, the TX macro's SWR_MIC0 (its sm6115 widgets
-				 * are the downstream ones: TX SWR_INPUTn, SWR_MICn)
+				 * in on the TX SoundWire's port 1, the TX macro's SWR_MIC0, ADC2 on port 2,
+				 * SWR_MIC4 (its sm6115 widgets are the downstream ones: TX SWR_INPUTn, SWR_MICn)
 				 */
 				"AMIC1", "MIC BIAS1",
 				"AMIC2", "MIC BIAS2",
 				"AMIC3", "MIC BIAS3",
 				"TX SWR_INPUT0", "ADC1_OUTPUT",
+				"TX SWR_INPUT4", "ADC2_OUTPUT",
 				"MM_DL1", "MultiMedia1 Playback",
 				"MM_DL2", "MultiMedia2 Playback",
 				"MultiMedia3 Capture", "MM_UL3";
@@ -1087,7 +1088,14 @@
 		wcd937x_tx: codec@0,3 {
 			compatible = "sdw20217010a00";
 			reg = <0 3>;
-			qcom,tx-port-mapping = <1 1 2 3>;
+			/*
+			 * WCD TX ports 1 (ADC1) -> master port 1, 2 (ADC2/3) -> 2, 3 (DMIC0-3, MBHC) and 4
+			 * (DMIC4-6) -> 3, as stock (ADC1 on TX1, the TX macro's SWR_MIC0; ADC2 on TX2,
+			 * SWR_MIC4). Two WCD ports on one master port (<1 1 2 3>, as qcm6490-idp) get the
+			 * master port's transport parameters both: with ADC1 and ADC2 on at once their
+			 * channel 1 samples collide.
+			 */
+			qcom,tx-port-mapping = <1 2 3 3>;
 		};
 	};
 

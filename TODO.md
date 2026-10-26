@@ -279,8 +279,12 @@
       手動路由：`MultiMedia3 Mixer TX_CODEC_DMA_TX_3`、`TX DEC0 MUX` SWR_MIC、`TX SMIC MUX0` SWR_MIC0、
       `TX_AIF1_CAP Mixer DEC0`、`ADC1_MIXER Switch`、`ADC1 Switch`，`arecord -D hw:0,2`（48 kHz）。底噪約 −88 dBFS，
       用户說話時峰值 −30 dBFS（`ADC1 Volume` 0；原廠初始 12，`TX_DEC0 Volume` 81）。
-      剩下：副麥（ADC2 和 ADC1 同時用要改 `qcom,tx-port-mapping`：現在 <1 1 2 3> 把 WCD 端口 2 也映到主控端口 1，
-      原廠是 TX2）、耳機麥和插孔檢測（MBHC）、錄音增益和 UCM。
+      **副麥也能錄（boot-149）**：`qcom,tx-port-mapping = <1 2 3 3>`（原廠的佈局：ADC1 → 主控端口 1 = `SWR_MIC0`，ADC2 →
+      端口 2 = `SWR_MIC4`）。<1 1 2 3>（Linaro / qcm6490-idp）把 WCD 端口 1、2 都映到主控端口 1：qcom 的 SoundWire 主控給
+      映到同一主控端口的從端口同樣的傳輸參數，兩路 ADC 同時開時聲道 1 的採樣撞在一起（約 −14 dBFS 的雜音，聲道 2 為 0，
+      boot-148，加 `qcom,tx-channel-mapping` 也一樣）。雙聲道錄音：ch1 主麥（DEC0）、ch2 副麥（`ADC2 MUX` INP3、
+      `TX SMIC MUX1` SWR_MIC4、DEC1），兩路獨立（相關 0.33）。注意 swr0 端口 3（MBHC）的 offset1 和端口 1 一樣是 1。
+      剩下：確認哪路在底部/頂部（用户對着兩頭說話）、耳機麥和插孔檢測（MBHC）、錄音增益和 UCM。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
       boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
       （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀
