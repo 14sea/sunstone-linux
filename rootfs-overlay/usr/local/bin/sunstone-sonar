@@ -10,8 +10,11 @@ relative to the signal, SNR about 30 dB at -46 dB.
 
   sunstone-sonar [-n CHIRPS] [-d CHIRP_MS] [-l LEVEL_DBFS] [--min M] [--max M] [--temp C] [--plot]
   sunstone-sonar --calibrate    (the same scene without the object: its echoes are subtracted after)
-On a table the phone hears the table, the room and itself about 25 dB below the direct sound,
-above an object half a metre away: calibrate first, without the object, and do not move the phone.
+Best raised (on a box, the bottom edge over its edge, nobody between the phone and the object):
+then the echo stands out by itself (--raw; a wall at 50 cm: 0.488 m, 10 dB below the direct
+sound; at 100 cm: 0.954 m). Flat on a table the phone hears the table, the room and itself about
+25 dB below the direct sound, above an object half a metre away: calibrate first, without the
+object, and do not move the phone.
 The background is the averaged matched filter output, lined up on the direct sound (playback and
 capture share the codec's clock, so it repeats to the sample), kept in ~/.cache/sunstone-sonar.npy.
 Flat on a table, sound bounces between the object and the phone: its echoes come at 1, 2, 3 times
@@ -154,13 +157,18 @@ def main():
         dk = 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2) if (y0 - 2 * y1 + y2) else 0
         echoes.append(((k + dk) / RATE * c / 2, y1))
         print(f'echo at {echoes[-1][0]:.3f} m  (strength {20*np.log10(y1):.1f} dB below the direct sound)')
-    # the object: the largest spacing whose multiples (1x, 2x, ...) explain the most echo strength
+    # the object: a spacing whose multiples (1x, 2x, ...) include the strongest echo and explain the
+    # most echo strength; without one, the nearest echo within 3 dB of the strongest
     tol = 0.04
+    strongest = max(echoes, key=lambda e: e[1])[0] if echoes else 0
+    top_w = max((w for _, w in echoes), default=0)
+    nearest = min((e for e, w in echoes if w >= top_w / np.sqrt(2)), default=0)
     fit = []
     for sp in np.arange(a.min, a.max, 0.002):
         hits = [(e, w) for e, w in echoes if round(e / sp) >= 1 and abs(e - round(e / sp) * sp) < tol]
         # a series starts at 1x or 2x (the first can hide under the direct sound): no subharmonics
-        if len(hits) >= 2 and min(round(e / sp) for e, _ in hits) <= 2:
+        if (len(hits) >= 2 and min(round(e / sp) for e, _ in hits) <= 2
+                and any(e == strongest for e, _ in hits)):
             fit.append((sum(w for _, w in hits), len(hits), sp, hits))
     if fit:
         top = max(f[0] for f in fit)
@@ -170,7 +178,7 @@ def main():
         sp = float((ks * es).sum() / (ks * ks).sum())
         print(f'object at {sp:.3f} m (echoes {", ".join(f"{int(k)}x" for k in ks)})')
     elif echoes:
-        print(f'object at {max(echoes, key=lambda e: e[1])[0]:.3f} m (strongest echo; no multiples)')
+        print(f'object at {nearest:.3f} m (nearest strong echo; no multiples)')
     if a.plot:
         step = max(1, len(prof) // 60)
         for k in range(0, len(prof), step):
