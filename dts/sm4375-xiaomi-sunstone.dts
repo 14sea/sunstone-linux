@@ -199,8 +199,19 @@
 				"IN2_HPHR", "HPHR_OUT",
 				"IN3_AUX", "AUX_OUT",
 				"Speaker IN", "AUX",
+				/*
+				 * microphones (stock mixer paths): AMIC1 the main one (ADC1), AMIC3 the second
+				 * (ADC2 INP3), AMIC2 the headset's (ADC2 INP2, MIC BIAS2 at 2.2 V); ADC1 comes
+				 * in on the TX SoundWire's port 1, the TX macro's SWR_MIC0 (its sm6115 widgets
+				 * are the downstream ones: TX SWR_INPUTn, SWR_MICn)
+				 */
+				"AMIC1", "MIC BIAS1",
+				"AMIC2", "MIC BIAS2",
+				"AMIC3", "MIC BIAS3",
+				"TX SWR_INPUT0", "ADC1_OUTPUT",
 				"MM_DL1", "MultiMedia1 Playback",
-				"MM_DL2", "MultiMedia2 Playback";
+				"MM_DL2", "MultiMedia2 Playback",
+				"MultiMedia3 Capture", "MM_UL3";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
@@ -218,6 +229,14 @@
 			};
 		};
 
+		mm3-dai-link {
+			link-name = "MultiMedia3";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
+			};
+		};
+
 		wcd-playback-dai-link {
 			link-name = "WCD Playback";
 
@@ -232,6 +251,22 @@
 			codec {
 				/* the amplifier is on this link only to be switched off before the stream stops */
 				sound-dai = <&speaker_amp>, <&wcd937x 0>, <&swr1 0>, <&rxmacro 0>;
+			};
+		};
+
+		wcd-capture-dai-link {
+			link-name = "WCD Capture";
+
+			cpu {
+				sound-dai = <&q6afedai TX_CODEC_DMA_TX_3>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd937x 1>, <&swr0 0>, <&txmacro 0>;
 			};
 		};
 	};

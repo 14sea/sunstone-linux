@@ -271,6 +271,16 @@
       的 receiver 模式？）、麥克風（WCD TX AMIC → VA/TX SoundWire → TX macro）。已知告警：SoundWire 端口數比 sm6115 多一個
       （`din/dout-ports mismatch with controller`）；q6afe 的 LPASS 硬件 devote（0x100f6）被 ADSP 拒絕；SIA8159 的校準 CRC
       對不上（芯片裡就是廠商默認值 76 66 70，默認值自己也通不過校驗，寫回同樣的值）。測試時音量要小（用户要求）。
+      **主麥克風能錄（2026-10-26，boot-147）**：原廠 mixer_paths_qrd.xml：主麥 AMIC1 → ADC1 → TX SoundWire 端口 1 →
+      TX macro `SWR_MIC0`（handset-mic 的 DEC1；我們用 DEC0），副麥 AMIC3 = ADC2 `INP3` → `SWR_MIC4`（TX2），耳機麥 AMIC2 =
+      ADC2 `INP2`，都走 TX_CDC_DMA_TX_3。sm6115 的 TX macro 用 v9_2 的 widget（`TX SWR_INPUTn`、`SWR_MICn`，和下游同名；
+      不是 qcm6490 等的 `TX SWR_ADCn`）。DTS：MultiMedia3 作錄音前端（`MultiMedia3 Capture` ← `MM_UL3`）、`WCD Capture`
+      鏈路（TX_CODEC_DMA_TX_3，`wcd937x 1` + `swr0` + `txmacro`）、AMIC → MIC BIAS、`TX SWR_INPUT0` ← `ADC1_OUTPUT`。
+      手動路由：`MultiMedia3 Mixer TX_CODEC_DMA_TX_3`、`TX DEC0 MUX` SWR_MIC、`TX SMIC MUX0` SWR_MIC0、
+      `TX_AIF1_CAP Mixer DEC0`、`ADC1_MIXER Switch`、`ADC1 Switch`，`arecord -D hw:0,2`（48 kHz）。底噪約 −88 dBFS，
+      用户說話時峰值 −30 dBFS（`ADC1 Volume` 0；原廠初始 12，`TX_DEC0 Volume` 81）。
+      剩下：副麥（ADC2 和 ADC1 同時用要改 `qcom,tx-port-mapping`：現在 <1 1 2 3> 把 WCD 端口 2 也映到主控端口 1，
+      原廠是 TX2）、耳機麥和插孔檢測（MBHC）、錄音增益和 UCM。
 - [ ] 傳感器（加速度計、陀螺儀、光線、距離）：在 ADSP 的 SSC 上。**加速度計、光線、距離、磁力計、指南針能讀（2026-10-26，
       boot-143，libssc 的 `ssccli`）**。SSC 是 QRTR 上的 QMI 服務 400（node 5）；它的文件經 fastrpc 由 hexagonrpcd 提供
       （DTS 裡 ADSP glink-edge 的 fastrpc 節點，compute-cb 3–7）。sensors PD 每次啟動都重寫註冊表：讀
