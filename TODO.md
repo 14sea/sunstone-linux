@@ -244,8 +244,16 @@
       IRQ SPI 257/259，SMMU 0x4a0/0x4a2，RPM IPA 時鐘，GSI 固件 `ipa_fws`（vendor_a 的 firmware/，`sunstone-fw-install` 拷貝，
       PAS 15，Linux 加載進 ipa-fw 載體），modem 表在 IMEM 0xc123000。開機 `IPA driver setup completed`、收到 modem running，
       `rmnet_ipa0` 出現，modem 和 Wi-Fi 不受影響。QMI 經 QRTR（`libqmi-utils`，`qmicli -d qrtr://0`）：DMS/UIM/NAS 應答，
-      MPSS.HI.4.3.4，LTE + 5G NR；兩個卡槽 `no-atr-received`（**沒有 SIM 卡**），未註冊。operating mode 報 `shutting-down`，有卡時看。
-      剩下（等 SIM 卡）：ModemManager（支持 QRTR）、數據撥號（rmnet + WDS）、短信；通話要音頻。
+      MPSS.HI.4.3.4，LTE + 5G NR；兩個卡槽 `no-atr-received`（**沒有 SIM 卡**），未註冊。operating mode 報 `shutting-down`（見下）。
+      **數據能用（2026-10-26，boot-145，物聯網卡 1NCE）**：卡在卡槽 1，USIM `detected`；沒有 ModemManager 時沒人把 modem
+      設成 online、也沒人建 provisioning 會話（`--dms-set-operating-mode=online`、`--uim-change-provisioning-session`
+      手動做後註冊上）。ModemManager 1.25.95（`modemmanager`，已加進 build-rootfs.sh）用 qcom-soc 插件：端口 `qrtr0`（QMI）+
+      `rmnet_ipa0`（net，udev 的 `ID_MM_QCOM_SOC` 規則；包裝上時網卡已存在，要 `udevadm trigger --action=change` 一次）。
+      漫遊註冊在 LTE B3（20 MHz，RSRP −99 dBm，SNR 15.6 dB）。NetworkManager 連接 `1nce`（APN `iot.1nce.net`，只 IPv4，
+      不自動連接、`ipv4.never-default`：這張卡流量很少）→ `qmapmux0.0@rmnet_ipa0`，經它 ping 8.8.8.8 4/4（約 90 ms）。
+      modem 沒有 LTE-M/NB-IoT（DMS 能力只有 gsm/umts/lte/5gnr），LTE 硬件頻段 1/3/5/7/8/34/38–41（沒有 B20/B28）。
+      剩下：短信（MM 報存儲 sm/me，從 1NCE 後台發一條試）、新鏡像沒有 NetworkManager（build-rootfs 用 networkd）時怎麼撥號
+      （mmcli --simple-connect + networkd 配地址，或換 NM）；通話要音頻。
       已知：`ipa: unexpected init_completed response`：ipa 是模塊，modem（內置 PAS 驅動）在 rootfs 掛載後先開始上電，ipa 錯過
       BEFORE_POWERUP，沒有拿 uC 的代理電源引用。影響只有 uC 的寄存器保持（要 AOSS QMP，這顆 RPM 架構的 SoC 沒有，函數直接
       返回）和 uC 的關閉命令，uC 本身初始化完成。要消除就得讓 modem 晚於 ipa 啟動。
