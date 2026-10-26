@@ -42,6 +42,10 @@
  *   avdd = 3.0 V switched by GPIO24, reset on PMR735A GPIO2 (active low), TE on GPIO23. DSI: vdda
  *   1.2 V = PM6125 L4, refgen. One msm DRM device drives display and GPU. ABL's splash is described
  *   as a simple-framebuffer, so simpledrm shows the console until msm's KMS takes over.
+ * - Cameras: CCI0/CCI1 and CAMSS (TFE530/CSID530 as qcm2290's, CSIPHY 1.2.1; kernel/patches/0018)
+ *   with the downstream DT's values. The sensors' cores and analog parts are on a WL2866D (i2c10,
+ *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0, no driver yet), SC202CS
+ *   2 MP (cci1 0x36, no driver yet), OV08D10 front (cci1 0x10, CSIPHY3: described below).
  *
  * clk_ignore_unused and pd_ignore_unused (bootargs) keep GCC/RPM from switching off what ABL left
  * running.
@@ -139,6 +143,22 @@
 		/* on when ABL hands over: the splash is showing */
 		regulator-boot-on;
 		pinctrl-0 = <&panel_avdd_default>;
+		pinctrl-names = "default";
+	};
+
+	/*
+	 * the camera modules' 1.8 V I/O supply, switched by GPIO38 (downstream CAM_VIO, shared by all
+	 * sensors through cam-res-mgr); their cores and analog parts are on the WL2866D (i2c10)
+	 */
+	cam_vio: cam-vio-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_vio";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 38 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		pinctrl-0 = <&cam_vio_default>;
 		pinctrl-names = "default";
 	};
 
@@ -855,6 +875,46 @@
 	 * Speaker amplifier (downstream sipa_i2c / si_pa.0, sia8159, si_pa_disable_pin: no enable GPIO,
 	 * switched over I2C only); its input is the WCD9370's AUX output. Local patch 0012.
 	 */
+	/*
+	 * the camera LDOs (downstream xiaomi,wl2866d; VIN1 = PM6125 S6 1.35 V, on as ABL leaves it).
+	 * Voltages as the vendor driver sets them; which sensor uses which, found by switching them
+	 * one at a time: the main sensor LDO1 + LDO3, the 8 MP one LDO2 + LDO4, the 2 MP one LDO4.
+	 */
+	regulator@28 {
+		compatible = "willsemi,wl2866d";
+		reg = <0x28>;
+
+		regulators {
+			cam_dvdd1: ldo1 {
+				regulator-name = "cam_dvdd1";
+				regulator-min-microvolt = <1050000>;
+				regulator-max-microvolt = <1050000>;
+				regulator-active-discharge = <1>;
+			};
+
+			cam_dvdd2: ldo2 {
+				regulator-name = "cam_dvdd2";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <1200000>;
+				regulator-active-discharge = <1>;
+			};
+
+			cam_avdd1: ldo3 {
+				regulator-name = "cam_avdd1";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+				regulator-active-discharge = <1>;
+			};
+
+			cam_avdd2: ldo4 {
+				regulator-name = "cam_avdd2";
+				regulator-min-microvolt = <2800000>;
+				regulator-max-microvolt = <2800000>;
+				regulator-active-discharge = <1>;
+			};
+		};
+	};
+
 	speaker_amp: amplifier@29 {
 		compatible = "si,sia8159";
 		reg = <0x29>;
@@ -1166,6 +1226,187 @@
 		reg = <0x0 0x0a7ec000 0x0 0x1000>;
 		#reset-cells = <1>;
 	};
+
+	/*
+	 * camera I2C (CCI), as downstream qcom,cci0/1: cci0's masters 0 (GPIO39/40, the main camera,
+	 * its EEPROM and AF) and 1 (GPIO41/42, sensor 3); cci1's master 0 (GPIO43/44, sensors 1 and 2)
+	 */
+	cci0: cci@5c1b000 {
+		compatible = "qcom,sm6375-cci", "qcom,msm8996-cci";
+		reg = <0x0 0x05c1b000 0x0 0x1000>;
+		interrupts = <GIC_SPI 206 IRQ_TYPE_EDGE_RISING>;
+		clocks = <&gcc GCC_CAMSS_TOP_AHB_CLK>, <&gcc GCC_CAMSS_CCI_0_CLK>;
+		clock-names = "ahb", "cci";
+		assigned-clocks = <&gcc GCC_CAMSS_CCI_0_CLK>;
+		assigned-clock-rates = <37500000>;
+		power-domains = <&gcc CAMSS_TOP_GDSC>;
+		pinctrl-0 = <&cci0_default &cci1_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cci0_i2c0: i2c-bus@0 {
+			reg = <0>;
+			clock-frequency = <400000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		cci0_i2c1: i2c-bus@1 {
+			reg = <1>;
+			clock-frequency = <400000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+	};
+
+	cci1: cci@5c1c000 {
+		compatible = "qcom,sm6375-cci", "qcom,msm8996-cci";
+		reg = <0x0 0x05c1c000 0x0 0x1000>;
+		interrupts = <GIC_SPI 214 IRQ_TYPE_EDGE_RISING>;
+		clocks = <&gcc GCC_CAMSS_TOP_AHB_CLK>, <&gcc GCC_CAMSS_CCI_1_CLK>;
+		clock-names = "ahb", "cci";
+		assigned-clocks = <&gcc GCC_CAMSS_CCI_1_CLK>;
+		assigned-clock-rates = <37500000>;
+		power-domains = <&gcc CAMSS_TOP_GDSC>;
+		pinctrl-0 = <&cci2_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cci1_i2c0: i2c-bus@0 {
+			reg = <0>;
+			clock-frequency = <400000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/*
+			 * the front camera, OmniVision OV08D10 (chip id 0x5608): downstream sensor 2 on
+			 * CSIPHY3, MCLK3 at 24 MHz, reset GPIO37, mounted at 270 degrees. Core 1.2 V =
+			 * WL2866D LDO2, analog 2.8 V = LDO4 (each one found by switching them in turn).
+			 */
+			front_cam: camera@10 {
+				compatible = "ovti,ov08d10";
+				reg = <0x10>;
+				clocks = <&gcc GCC_CAMSS_MCLK3_CLK>;
+				assigned-clocks = <&gcc GCC_CAMSS_MCLK3_CLK>;
+				assigned-clock-rates = <24000000>;
+				reset-gpios = <&tlmm 37 GPIO_ACTIVE_LOW>;
+				dovdd-supply = <&cam_vio>;
+				avdd-supply = <&cam_avdd2>;
+				dvdd-supply = <&cam_dvdd2>;
+				pinctrl-0 = <&cam_mclk3_default &cam_reset3_default>;
+				pinctrl-names = "default";
+				orientation = <0>;
+				rotation = <270>;
+
+				port {
+					front_cam_ep: endpoint {
+						data-lanes = <1 2>;
+						link-frequencies = /bits/ 64 <720000000 360000000>;
+						remote-endpoint = <&camss_csiphy3_ep>;
+					};
+				};
+			};
+		};
+	};
+
+	/*
+	 * CAMSS as downstream's blair DT: TFE530/CSID530 x3 (each CSID at the start of its TFE's
+	 * block, the TFE core 0x1000 above it), CSIPHY 1.2.1 x4 at 0x2000 steps (kernel/patches/0018).
+	 * TFE stream 0x800; CSIPHY supplies 0.88 V PM6125 L7 and 1.2 V L4. No interconnect driver:
+	 * the AXI and AHB rates are set here instead.
+	 */
+	camss: camss@5c11000 {
+		compatible = "qcom,sm6375-camss";
+		reg = <0x0 0x05c11000 0x0 0x1000>,
+		      <0x0 0x05c6e000 0x0 0x1000>,
+		      <0x0 0x05c75000 0x0 0x1000>,
+		      <0x0 0x05c7c000 0x0 0x1000>,
+		      <0x0 0x05c52000 0x0 0x2000>,
+		      <0x0 0x05c54000 0x0 0x2000>,
+		      <0x0 0x05c56000 0x0 0x2000>,
+		      <0x0 0x05c58000 0x0 0x2000>,
+		      <0x0 0x05c6f000 0x0 0x4000>,
+		      <0x0 0x05c76000 0x0 0x4000>,
+		      <0x0 0x05c7d000 0x0 0x4000>;
+		reg-names = "top",
+			    "csid0", "csid1", "csid2",
+			    "csiphy0", "csiphy1", "csiphy2", "csiphy3",
+			    "vfe0", "vfe1", "vfe2";
+
+		clocks = <&gcc GCC_CAMERA_AHB_CLK>,
+			 <&gcc GCC_CAMSS_AXI_CLK>,
+			 <&gcc GCC_CAMSS_NRT_AXI_CLK>,
+			 <&gcc GCC_CAMSS_RT_AXI_CLK>,
+			 <&gcc GCC_CAMSS_TFE_0_CSID_CLK>,
+			 <&gcc GCC_CAMSS_TFE_1_CSID_CLK>,
+			 <&gcc GCC_CAMSS_TFE_2_CSID_CLK>,
+			 <&gcc GCC_CAMSS_CPHY_0_CLK>,
+			 <&gcc GCC_CAMSS_CSI0PHYTIMER_CLK>,
+			 <&gcc GCC_CAMSS_CPHY_1_CLK>,
+			 <&gcc GCC_CAMSS_CSI1PHYTIMER_CLK>,
+			 <&gcc GCC_CAMSS_CPHY_2_CLK>,
+			 <&gcc GCC_CAMSS_CSI2PHYTIMER_CLK>,
+			 <&gcc GCC_CAMSS_CPHY_3_CLK>,
+			 <&gcc GCC_CAMSS_CSI3PHYTIMER_CLK>,
+			 <&gcc GCC_CAMSS_TOP_AHB_CLK>,
+			 <&gcc GCC_CAMSS_TFE_0_CLK>,
+			 <&gcc GCC_CAMSS_TFE_0_CPHY_RX_CLK>,
+			 <&gcc GCC_CAMSS_TFE_1_CLK>,
+			 <&gcc GCC_CAMSS_TFE_1_CPHY_RX_CLK>,
+			 <&gcc GCC_CAMSS_TFE_2_CLK>,
+			 <&gcc GCC_CAMSS_TFE_2_CPHY_RX_CLK>;
+		clock-names = "ahb",
+			      "axi",
+			      "camnoc_nrt_axi",
+			      "camnoc_rt_axi",
+			      "csi0", "csi1", "csi2",
+			      "csiphy0", "csiphy0_timer",
+			      "csiphy1", "csiphy1_timer",
+			      "csiphy2", "csiphy2_timer",
+			      "csiphy3", "csiphy3_timer",
+			      "top_ahb",
+			      "vfe0", "vfe0_cphy_rx",
+			      "vfe1", "vfe1_cphy_rx",
+			      "vfe2", "vfe2_cphy_rx";
+		assigned-clocks = <&gcc GCC_CAMSS_AXI_CLK>, <&gcc GCC_CAMSS_TOP_AHB_CLK>;
+		assigned-clock-rates = <300000000>, <80000000>;
+
+		interrupts = <GIC_SPI 210 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 212 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 77 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 72 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 73 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 74 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 312 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 211 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 213 IRQ_TYPE_EDGE_RISING>,
+			     <GIC_SPI 78 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "csid0", "csid1", "csid2",
+				  "csiphy0", "csiphy1", "csiphy2", "csiphy3",
+				  "vfe0", "vfe1", "vfe2";
+
+		iommus = <&apps_smmu 0x800 0x0>;
+		power-domains = <&gcc CAMSS_TOP_GDSC>;
+
+		vdd-csiphy-0p9-supply = <&pm6125_l7>;
+		vdd-csiphy-1p2-supply = <&pm6125_l4>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@3 {
+				reg = <3>;
+
+				camss_csiphy3_ep: endpoint {
+					data-lanes = <0 1>;
+					remote-endpoint = <&front_cam_ep>;
+				};
+			};
+		};
+	};
 };
 
 /*
@@ -1432,6 +1673,69 @@
 	qup_i2c7_default: qup-i2c7-default-state {
 		pins = "gpio27", "gpio28";
 		function = "qup11_f1";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	cam_mclk0_default: cam-mclk0-default-state {
+		pins = "gpio29";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_mclk1_default: cam-mclk1-default-state {
+		pins = "gpio30";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_mclk2_default: cam-mclk2-default-state {
+		pins = "gpio31";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_mclk3_default: cam-mclk3-default-state {
+		pins = "gpio32";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_reset3_default: cam-reset3-default-state {
+		pins = "gpio37";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_vio_default: cam-vio-default-state {
+		pins = "gpio38";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cci0_default: cci0-default-state {
+		pins = "gpio39", "gpio40";
+		function = "cci_i2c";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	cci1_default: cci1-default-state {
+		pins = "gpio41", "gpio42";
+		function = "cci_i2c";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	cci2_default: cci2-default-state {
+		pins = "gpio43", "gpio44";
+		function = "cci_i2c";
 		drive-strength = <2>;
 		bias-pull-up;
 	};

@@ -24,7 +24,8 @@ PKGS="systemd systemd-sysv systemd-resolved systemd-timesyncd libpam-systemd lib
 	openssh-server iproute2 iputils-ping iw wpasupplicant rfkill rmtfs tqftpserv qrtr-tools linux-firmware
 	python3 ca-certificates curl less nano vim-tiny sudo bash-completion tzdata apparmor ufw
 	unattended-upgrades cron logrotate htop iperf3 strace i2c-tools usbutils ethtool lsof file psmisc
-	zstd xz-utils gpg evtest ir-keytable libqmi-utils modemmanager hexagonrpcd alsa-ucm-conf mesa-utils libgl1-mesa-dri libegl-mesa0 mesa-vulkan-drivers"
+	zstd xz-utils gpg evtest ir-keytable libqmi-utils modemmanager hexagonrpcd alsa-ucm-conf mesa-utils libgl1-mesa-dri libegl-mesa0 mesa-vulkan-drivers
+	v4l-utils libcamera-tools libcamera-ipa python3-numpy"
 
 # debootstrap and Ubuntu's archive keyring, if this system has none: the keyring is accepted for
 # its 2018 archive key's fingerprint, then the chain InRelease -> Packages.xz -> .deb is checked

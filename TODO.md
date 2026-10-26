@@ -348,7 +348,15 @@
       按 v % 16 查表（0 cn、1 global、2 in、3 cn_new、4/5 moonstone_p、6 x、7 cn，其他 unknow），只有 global 帶 NFC。
       本機的值（一個只讀的臨時模塊 `qcom_smem_get(135)` 讀到）不是 global。硬件上也確認了（boot-144）：開 i2c0、GPIO6 輸出高
       （pinctrl debugfs `out high`）後整條總線掃描沒有任何應答，VEN 低時也沒有；同樣的掃描在 i2c10 上能看到沒綁驅動的 0x28、0x4e、0x66。
-- [ ] 攝像頭：原廠 IFE/OPE/CCI（cam-isp）；主線 CAMSS 不支持 sm6375，sm6375.dtsi 也沒有 CAMSS / CCI 節點。工作量很大，大概率不做。
+- [ ] 攝像頭（2026-10-26 開始，boot-154–157）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
+      的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018），沒有 interconnect。
+  - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
+        RAW10 抓幀、libcamera simple 管線 + 軟件 ISP 1632x1224 約 29 fps，PipeWire / GNOME 相機（Snapshot）。
+  - [ ] 主攝 OV48B2Q（cci0 主機 0 的 0x10，CSIPHY0，4 lane，MCLK0，復位 GPIO34，LDO1 + LDO3，帶 EEPROM 0x51 和對焦馬達）：
+        主線沒有驅動，要寫（寄存器表參考 MTK 的 ov48b2q_mipi_raw 或原廠 sensormodule .bin）。
+  - [ ] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，MCLK2 24 MHz，復位 GPIO36，LDO4）：主線沒有驅動。
+  - [ ] 閃光燈（原廠 `qcom,camera-flash`，GPIO38/51）、對焦馬達（`cam_vaf_ldo`）。cci0 主機 1 的 0x64 只有 8 位寄存器、
+        不用 WL2866D 供電，大概是空着的傳感器 3 的 EEPROM。
 - [ ] 指紋：Goodix / FPC，TZ 管的 SPI（GPIO 13–16 保留給 TZ），要 TZ 裡的可信應用，**基本做不了**。
 
 ## 以後

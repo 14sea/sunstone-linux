@@ -1,0 +1,43 @@
+media: i2c: ov08d10: register the fwnode rotation and orientation controls
+
+libcamera reads the camera's location and mounting rotation from
+V4L2_CID_CAMERA_ORIENTATION and V4L2_CID_CAMERA_SENSOR_ROTATION; without
+them it assumes 0 degrees and an unknown location. Parse the device's
+fwnode properties and add the two controls, as other sensor drivers do.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/i2c/ov08d10.c b/drivers/media/i2c/ov08d10.c
+index 9adef5446..49eefc4bc 100644
+--- a/drivers/media/i2c/ov08d10.c
++++ b/drivers/media/i2c/ov08d10.c
+@@ -961,6 +961,7 @@ static const struct v4l2_ctrl_ops ov08d10_ctrl_ops = {
+ 
+ static int ov08d10_init_controls(struct ov08d10 *ov08d10)
+ {
++	struct v4l2_fwnode_device_properties props;
+ 	struct v4l2_ctrl_handler *ctrl_hdlr;
+ 	u8 link_freq_size;
+ 	s64 exposure_max;
+@@ -972,7 +973,7 @@ static int ov08d10_init_controls(struct ov08d10 *ov08d10)
+ 	int ret;
+ 
+ 	ctrl_hdlr = &ov08d10->ctrl_handler;
+-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1043,6 +1044,12 @@ static int ov08d10_init_controls(struct ov08d10 *ov08d10)
+ 	if (ov08d10->vflip)
+ 		ov08d10->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+ 
++	ret = v4l2_fwnode_device_parse(ov08d10->dev, &props);
++	if (ret)
++		return ret;
++
++	v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &ov08d10_ctrl_ops, &props);
++
+ 	if (ctrl_hdlr->error)
+ 		return ctrl_hdlr->error;
+ 
