@@ -44,8 +44,8 @@
  *   as a simple-framebuffer, so simpledrm shows the console until msm's KMS takes over.
  * - Cameras: CCI0/CCI1 and CAMSS (TFE530/CSID530 as qcm2290's, CSIPHY 1.2.1; kernel/patches/0018)
  *   with the downstream DT's values. The sensors' cores and analog parts are on a WL2866D (i2c10,
- *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0, no driver yet), SC202CS
- *   2 MP (cci1 0x36, no driver yet), OV08D10 front (cci1 0x10, CSIPHY3: described below).
+ *   kernel/patches/0017), their I/O on GPIO38. Fitted: OV48B2Q main (cci0 0x10, CSIPHY0, 0020),
+ *   SC202CS 2 MP (cci1 0x36, no driver yet), OV08D10 front (cci1 0x10, CSIPHY3).
  *
  * clk_ignore_unused and pd_ignore_unused (bootargs) keep GCC/RPM from switching off what ABL left
  * running.
@@ -1250,6 +1250,39 @@
 			clock-frequency = <400000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			/*
+			 * the main camera, OmniVision OV48B2Q (chip id 0x564842; it answers at 0x21
+			 * too): downstream sensor 0 on CSIPHY0, four lanes, MCLK0, reset GPIO34. 24 MHz
+			 * instead of downstream's 19.2: the register tables (kernel/patches/0020) are
+			 * for 24. Core 1.05 V = WL2866D LDO1, analog 2.8 V = LDO3. Its EEPROM is at
+			 * 0x51; the AF actuator (cam_vaf_ldo) did not answer and is left out. Rotation
+			 * 270, not downstream's 90: the vendor table reads the array out the other way
+			 * round (GNOME Snapshot upside down with 90).
+			 */
+			main_cam: camera@10 {
+				compatible = "ovti,ov48b2q";
+				reg = <0x10>;
+				clocks = <&gcc GCC_CAMSS_MCLK0_CLK>;
+				assigned-clocks = <&gcc GCC_CAMSS_MCLK0_CLK>;
+				assigned-clock-rates = <24000000>;
+				reset-gpios = <&tlmm 34 GPIO_ACTIVE_LOW>;
+				dovdd-supply = <&cam_vio>;
+				avdd-supply = <&cam_avdd1>;
+				dvdd-supply = <&cam_dvdd1>;
+				pinctrl-0 = <&cam_mclk0_default &cam_reset0_default>;
+				pinctrl-names = "default";
+				orientation = <1>;
+				rotation = <270>;
+
+				port {
+					main_cam_ep: endpoint {
+						data-lanes = <1 2 3 4>;
+						link-frequencies = /bits/ 64 <900000000>;
+						remote-endpoint = <&camss_csiphy0_ep>;
+					};
+				};
+			};
 		};
 
 		cci0_i2c1: i2c-bus@1 {
@@ -1398,6 +1431,15 @@
 		ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				camss_csiphy0_ep: endpoint {
+					data-lanes = <0 1 2 3>;
+					remote-endpoint = <&main_cam_ep>;
+				};
+			};
 
 			port@3 {
 				reg = <3>;
@@ -1703,6 +1745,13 @@
 	cam_mclk3_default: cam-mclk3-default-state {
 		pins = "gpio32";
 		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_reset0_default: cam-reset0-default-state {
+		pins = "gpio34";
+		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
 	};

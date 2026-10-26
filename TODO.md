@@ -353,8 +353,10 @@
   - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
         RAW10 抓幀、libcamera simple 管線 + 軟件 ISP（1632x1224 約 29 fps，3200x2400 30 fps，緩衝區在 system dma-heap），
         PipeWire / GNOME 相機（Snapshot，用户確認豎屏方向正確；橫屏差 90°，是 Snapshot 不管屏幕旋轉）。
-  - [ ] 主攝 OV48B2Q（cci0 主機 0 的 0x10，CSIPHY0，4 lane，MCLK0，復位 GPIO34，LDO1 + LDO3，帶 EEPROM 0x51 和對焦馬達）：
-        主線沒有驅動，要寫（寄存器表參考 MTK 的 ov48b2q_mipi_raw 或原廠 sensormodule .bin）。
+  - [x] 主攝 OV48B2Q（cci0 主機 0 的 0x10，CSIPHY0，4 lane，MCLK0 24 MHz，復位 GPIO34，LDO1 + LDO3）：本地補丁 0020，
+        MTK ov48b2q_mipi_raw 的表，一個模式 4000x3000 30 fps（軟件 ISP 15 fps）；rotation 270。用户確認方向正確、有點糊。
+  - [ ] 主攝：小一點的模式（2000x1500 或 1080p，軟件 ISP 跟得上 30 fps）；對焦馬達沒應答（`cam_vaf_ldo` 原廠是固定
+        穩壓器，GPIO50 `CAM_VAF0`），所以只有固定焦距；EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [ ] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，MCLK2 24 MHz，復位 GPIO36，LDO4）：主線沒有驅動。
   - [ ] 閃光燈（原廠 `qcom,camera-flash`，GPIO38/51）、對焦馬達（`cam_vaf_ldo`）。cci0 主機 1 的 0x64 只有 8 位寄存器、
         不用 WL2866D 供電，大概是空着的傳感器 3 的 EEPROM。
