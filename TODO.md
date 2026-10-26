@@ -287,8 +287,11 @@
       ssc-accel/light/compass（ssc-proximity 不開：上游因誤報默認關了，桌面也不用），安裝矩陣只反 x、y（postmarketOS 用的
       連 z 也反，正面朝上會報 face-down）。GNOME 的坑：會話啟動時接着藍牙鼠標，mutter 不在觸控模式，斷開鼠標後也不恢復
       （`PanelOrientationManaged` 一直 false，快捷設置裡沒有自動旋轉），要重啟會話；接着鼠標時不旋轉是 mutter 的設計。
-      剩下：磁力計讀數幅度約 520（ssccli 標 μT，但 libssc 原樣傳 SSC 的值；也可能是 mG，那就是約 52 μT 的地磁）：平放轉一圈看
-      X/Y 畫的圓，半徑約 18 是 μT + 硬鐵偏移，約 180 是 mG；GNOME 自動亮度（光線傳感器已經在 iio-sensor-proxy 裡，沒試）；
+      磁力計單位是 μT（2026-10-26 實測）：平放順、逆各轉一圈，X/Y 畫出圓心 (235, −36)、半徑 19.8、殘差 0.6 的圓（地磁水平
+      分量的量級；mG 的話半徑會是 ~200），讀數大是約 470 μT 的硬鐵偏移（Z 約 −448，其中地磁只佔幾十）；`mag` 是未校準數據，
+      SSC 的 mag_cal 和指南針自己校準。陀螺儀同時積分：順時針一圈 369°、轉回後 −2°（13 Hz 採樣，約 2.5%），和磁力計
+      朝向的變化一致（符號相反，坐標約定）。
+      剩下：GNOME 自動亮度（光線傳感器已經在 iio-sensor-proxy 裡，沒試）；
       PD 還會找本地接口 `sns_registry`（我們沒有，返回錯誤後它繼續）、`pcba_config`（華勤 sysfs，沒有）。
 - [x] NFC：**本機沒有**（2026-10-26 查證，不做）。原廠設備樹的公共部分有 `st21nfc@8`（i2c@4a80000 = QUP0 SE0，VEN GPIO6、
       IRQ GPIO9、clkreq GPIO7），vendor 也帶 ST 的 HAL、固件和 `st21nfc.ko`，但都是各版本共用的：NFC 的 HAL 和 STFlashTool 只在
