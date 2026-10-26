@@ -280,9 +280,16 @@
       `tools/ubuntu/hexagonrpcd-sunstone.patch`（`add-hexagonrpcd.sh` 編進 `/usr/local/libexec/hexagonrpc/`，build-rootfs.sh
       調用）：`-W DIR` 可寫的註冊表（`/var/lib/hexagonrpcd/sensors`，第一次啟動從 sunstone-fw-install 的只讀副本複製，persist 分區
       從不寫），fwrite/fremove/frename，方法號 ≥ 31 的分派，大於 256 字節的輸入用 get_in_bufs2，調用失敗不再讓守護進程退出。
-      剩下：陀螺儀（ssccli 不支持，要另外試）；磁力計讀數幅度約 520 μT（地磁約 50 μT，未校準還是揚聲器磁鐵？）；
-      libssc 是手動編在手機 `/usr/local`（0.4.4），沒有進構建腳本；GNOME 的自動旋轉/亮度要 iio-sensor-proxy 帶 libssc 支持
-      （Ubuntu 的包沒有）；PD 還會找本地接口 `sns_registry`（我們沒有，返回錯誤後它繼續）、`pcba_config`（華勤 sysfs，沒有）。
+      陀螺儀也能讀（`ssccli --sensor gyroscope`，幫助裡沒列；靜止時三軸約 0，單位 rad/s，ssccli 印成 m/s）。
+      **GNOME 自動旋轉能用（2026-10-26，用户確認四個方向都對）**：`tools/ubuntu/add-ssc.sh` 編 libssc v0.4.4 和
+      iio-sensor-proxy master（SSC 支持在 3.8 之後才合併，按提交固定），build-rootfs.sh 調用；Ubuntu 的 3.8 包提供 unit、D-Bus、
+      polkit。unit 的 `RestrictAddressFamilies` 要加 `AF_QIPCRTR`（drop-in），`79-sunstone-ssc.rules` 把 fastrpc-adsp 標成
+      ssc-accel/light/compass（ssc-proximity 不開：上游因誤報默認關了，桌面也不用），安裝矩陣只反 x、y（postmarketOS 用的
+      連 z 也反，正面朝上會報 face-down）。GNOME 的坑：會話啟動時接着藍牙鼠標，mutter 不在觸控模式，斷開鼠標後也不恢復
+      （`PanelOrientationManaged` 一直 false，快捷設置裡沒有自動旋轉），要重啟會話；接着鼠標時不旋轉是 mutter 的設計。
+      剩下：磁力計讀數幅度約 520（ssccli 標 μT，但 libssc 原樣傳 SSC 的值；也可能是 mG，那就是約 52 μT 的地磁）：平放轉一圈看
+      X/Y 畫的圓，半徑約 18 是 μT + 硬鐵偏移，約 180 是 mG；GNOME 自動亮度（光線傳感器已經在 iio-sensor-proxy 裡，沒試）；
+      PD 還會找本地接口 `sns_registry`（我們沒有，返回錯誤後它繼續）、`pcba_config`（華勤 sysfs，沒有）。
 - [x] NFC：**本機沒有**（2026-10-26 查證，不做）。原廠設備樹的公共部分有 `st21nfc@8`（i2c@4a80000 = QUP0 SE0，VEN GPIO6、
       IRQ GPIO9、clkreq GPIO7），vendor 也帶 ST 的 HAL、固件和 `st21nfc.ko`，但都是各版本共用的：NFC 的 HAL 和 STFlashTool 只在
       `ro.boot.product.hardware.sku=sunstone_global` 時啟動。ABL（LinuxLoader）的 SKU 取自 SMEM 條目 135 的第一個 u32 v，

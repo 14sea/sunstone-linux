@@ -111,3 +111,4 @@
 | 144 | 2026-10-26 | NFC 探測（臨時 DTS：boot-143 + `&i2c0` okay；`gpiod` 裝在手機上）；`e77f2e87413e2d09` | i2c0 是 bus 0，GPIO6（VEN）`out high` 時 `i2cdetect -r` 全總線無應答，0x08 讀取 ENXIO；VEN 低時一樣。i2c10（bus 3）上同樣的掃描能看到 0x28、0x4e、0x66，掃描本身有效 → 本機沒有 NFC 芯片 | — |
 | 145 | 2026-10-26 | 刷回 boot-143（`8f55c9dfad9ee6ab`） | 正常，hexagonrpcd 開機啟動，距離傳感器可讀 | — |
 | — | 2026-10-26 | boot-145 上：1NCE 物聯網卡（卡槽 1）；`modemmanager` 1.25.95；NetworkManager 連接 `1nce`（APN `iot.1nce.net`，不自動連接、不作默認路由） | 手動 online + provisioning 會話後漫遊註冊在 LTE B3；MM 的 qcom-soc 插件要 udev 重新觸發 rmnet_ipa0 後才找到 net 端口；連接後 `qmapmux0.0` 拿到地址，ping 8.8.8.8 4/4，約 90 ms；Wi-Fi 默認路由不變。用完斷開 | — |
+| — | 2026-10-26 | boot-145 上：`add-ssc.sh`（libssc v0.4.4、iio-sensor-proxy master `ca0d5b0` 帶 SSC），unit drop-in（AF_QIPCRTR），`79-sunstone-ssc.rules` | iio-sensor-proxy 找到加速度計、光線、指南針；安裝矩陣按 pmaports 時正面朝上報 face-down，改成只反 x、y 後 face-up。GNOME 不出自動旋轉：mutter 已認領加速度計，但會話啟動時接着藍牙鼠標，斷開後觸控模式不恢復；重啟 GNOME 會話後 `PanelOrientationManaged` true，用户確認四個方向都轉對 | — |
