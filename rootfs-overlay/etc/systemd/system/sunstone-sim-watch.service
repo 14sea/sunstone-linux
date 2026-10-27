@@ -1,0 +1,11 @@
+[Unit]
+Description=sunstone: reopen the SIM's provisioning session after a SIM/microSD tray hot swap
+After=ModemManager.service
+
+[Service]
+ExecStart=/usr/local/sbin/sunstone-sim-watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
