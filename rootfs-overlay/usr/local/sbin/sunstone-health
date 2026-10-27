@@ -1,6 +1,7 @@
 #!/bin/sh
 # sunstone: one line of health data per run (sunstone-health.timer, every minute) appended to
-# /var/log/sunstone-health.log: boot, uptime, load, memory, temperatures, battery and charger,
+# /var/log/sunstone-health.log: boot, uptime, load, memory, temperatures (skin = quiet_therm, the
+# board thermistor downstream throttles on; xo = the XO's), battery and charger,
 # CPU frequency caps (throttling), Wi-Fi and gateway reachability, modem, kernel errors this boot
 # (from the journal: the ring buffer can lose them), failed units.
 LOG=/var/log/sunstone-health.log
@@ -26,11 +27,11 @@ else
 	rtt=nogw
 fi
 sig=$(iw dev wlan0 link 2>/dev/null | awk '/signal:/ { print $2 }')
-printf '%s boot=%s up=%s load=%s memavail_mb=%s cpu=%s gpu=%s batt=%s chg=%s pmic=%s cap=%s vbat_mv=%s ibat_ma=%s chg_status=%s cv=%s f0max=%s f6max=%s f6cur=%s wlan=%s sig=%s gw_rtt=%s modem=%s kerr=%s failed=%s\n' \
+printf '%s boot=%s up=%s load=%s memavail_mb=%s cpu=%s gpu=%s batt=%s chg=%s pmic=%s skin=%s xo=%s cap=%s vbat_mv=%s ibat_ma=%s chg_status=%s cv=%s f0max=%s f6max=%s f6cur=%s wlan=%s sig=%s gw_rtt=%s modem=%s kerr=%s failed=%s\n' \
 	"$(date -Is)" "$(cut -c1-8 /proc/sys/kernel/random/boot_id)" "$(cut -d. -f1 /proc/uptime)" \
 	"$(cut -d' ' -f1 /proc/loadavg)" "$(awk '/MemAvailable/ { print int($2 / 1024) }' /proc/meminfo)" \
 	"$(zone 'cpu[0-9]-thermal' 'cluster*')" "$(zone 'gpuss*')" "$(($(cat $B/temp 2>/dev/null || echo 0) / 10))" \
-	"$(zone bq25890-charger-0)" "$(zone pm6125-thermal pmr735a-thermal)" \
+	"$(zone bq25890-charger-0)" "$(zone pm6125-thermal pmr735a-thermal)" "$(zone quiet-thermal)" "$(zone xo-thermal)" \
 	"$(cat $B/capacity 2>/dev/null)" "$(($(cat $B/voltage_now 2>/dev/null || echo 0) / 1000))" \
 	"$(($(cat $B/current_now 2>/dev/null || echo 0) / 1000))" "$(cat $C/status 2>/dev/null)" \
 	"$(cat $C/constant_charge_voltage 2>/dev/null)" "$(cat $P0/scaling_max_freq)" "$(cat $P6/scaling_max_freq)" \

@@ -128,7 +128,7 @@
       shell（`rdinit=/bin/sh`，open_timeout 20）→ 每次約 53 s 復位，7 次後停在 fastboot（374 s，tries 0）；不加載驅動
       （`initcall_blacklist`）→ 每次約 55 s 復位，386 s 後 fastboot。正常開機不受影響（>160 s 無復位）。
 - [x] 過熱保護（boot-97/99）：CPU/GPU 溫區的 `cooling-maps` + 250 ms 被動輪詢，模擬驗證逐檔降頻。
-      未做：`cpu-unk0/1` 未綁定；電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；
+      `cpu-unk0/1` 2026-10-27 綁到 A78（見「以後」的熱管理）；電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；
       真實高負載下的溫度曲線放到長時間測試裏看。
 - [x] 長時間穩定性測試（boot-99，24 h 通過，見 LOG.md）：內存、溫度、Wi-Fi、內核錯誤、電池在 4.0–4.1 V 之間。
 - [x] 最終配置上再跑 24 h（modem 修復、電源鍵、啟動成功標記、省電關、開機看門狗），期間故意觸發看門狗復位和 panic。
@@ -427,9 +427,23 @@
 - [x] **wlroots0.20 是本地補丁版**（0.20.2-1.1，`/etc/pacman.conf` 裡 IgnorePkg）：Arch 升級 wlroots0.20 或 phoc 換
       wlroots 版本時，用 `sunstone-build-wlroots-phosh` 重編，再解除 IgnorePkg。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）；腳本在 `rootfs-overlay-arch/`。
 
-- [ ] 熱管理的剩餘部分（CPU/GPU 的 cooling-maps 已做，見「服務器」）：`cpu-unk0/1`（tsens 11、12）沒綁定，電池溫區（sm5602）
-      沒有觸發點，充電靠充電器的 JEITA（TS 腳）。
-- [ ] PMK8350 ADC 通道、PM6125 溫度報警的閾值。
+- [x] **板上熱敏電阻和 `cpu-unk0/1`**（2026-10-27，boot-175/176）：
+      `cpu-unk0/1`（tsens 11、12）是 A78 簇的第 3、4 個傳感器（下游叫 cpu-1-2/cpu-1-3，從它們限 cpu@600），綁到 cpu6 策略；
+      模擬 92 °C 時只有 cpu6 降一檔。熱敏電阻照下游：PMK8350 ADC7 的 `xo_therm`（0x644），PM6125 ADC5 的 `pa_therm1`
+      （THM1）、`quiet_therm`（THM2）、`msm_therm`、`rear_cam_flash_therm`、`pa_therm2`（PM6125 GPIO3/6/7 = ADC5 GPIO1/3/4，
+      引腳高阻）。PM6125 的 ADC_TM 硬件只有 4 個通道（NUM_BTM 讀出 4，boot-175 按 6 個寫時 probe 報 Invalid channel 4），
+      和下游一樣 `msm_therm` 走 IIO 輪詢（`generic-adc-thermal`，5 s）。下游的 `rfc_cam_therm`（GPIO4）讀出 −40 °C（開路），
+      本機沒焊，不用。mainline pm6125.dtsi 的 `xo_therm`（0x4c）本板沒接，刪掉；PMK8350 的 vref_1p25 讀 1.000 V（ADC7 換算
+      不對），不列。溫區：`quiet-thermal`（下游的皮膚傳感器）55 °C 被動（cpu0、cpu6、GPU，1 s 輪詢）、80 °C 關機，模擬 60 °C
+      時三者各降一檔、清除後恢復；`xo`、`pa-therm1/2`、`msm`、`cam-flash` 只有 125 °C 的 critical（下游的 step 區都是
+      disabled，Xiaomi 用戶態限頻；這裡沒有 modem PA 的冷卻設備）。空閒充電時都在 27–30 °C。健康日誌加了 `skin=`、`xo=`。
+- [ ] 熱管理的剩餘部分：電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；PM6125 溫度報警的閾值。
+- [x] QRNG（2026-10-27 查過，不做）：下游 `qcom,msm-rng`@0x4453000（`qcom,no-qrng-config`）。7.3 的 qcom-rng 只把
+      `qcom,trng` 註冊成 hwrng，`qcom,prng`/`prng-ee` 只綁定、什麼都不做；同地址的 agatti 在主線是 prng-ee，沒有資料說 holi
+      的是 TRNG，不能硬寫成 trng 給它記滿熵。內核不缺熵（沒有硬件 RNG 時 `crng init done` 在 4.1 s），CPU 有 AES/SHA 指令，
+      加密引擎（qcrypto）也就不需要。
+- [ ] 日誌刷屏：`ath10k_snoc: chan info: invalid frequency 0 (idx 41 out of bounds)`（18 h 482 次），
+      `wcd937x_codec: clk already disabled`（12 次，大概是音頻流開關時）；2026-10-27 發現，沒查。
 - [x] RTC 偏移：timesyncd 經 Wi-Fi 對時，`rtc-offset-save.path` 在對時後保存偏移（M5）。
 - [x] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要測試主機的 SOCKS 隧道。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）。
 - [x] 內核模塊：現在所有驅動都編進內核，rootfs 裡沒有 `/lib/modules`；以後要裝模塊（`modules_install` + 推送）。

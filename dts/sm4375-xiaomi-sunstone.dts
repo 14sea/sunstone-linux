@@ -59,6 +59,7 @@
 #include <dt-bindings/clock/qcom,sm6375-dispcc.h>
 #include <dt-bindings/clock/qcom,sm6375-gpucc.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pmk8350.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/soc/qcom,apr.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
@@ -1023,9 +1024,140 @@
 	status = "okay";
 };
 
-/* the PMK8350 ADC has no channels described yet */
+/*
+ * Board thermistors (100k NTC, ratiometric), as on the downstream DT: the XO's on the PMK8350 ADC7,
+ * five more on the PM6125 ADC5 (AMUX THM1/2 and PM6125 GPIO3/6/7 as ADC5 GPIO1/3/4). Downstream also
+ * lists rfc_cam_therm (GPIO4 = ADC5 GPIO2), which reads -40 C here (open: not fitted on this board).
+ * All are watched by the ADC_TMs except msm_therm: the PM6125 ADC_TM has 4 channels (NUM_BTM reads
+ * 4), so as downstream (adc-tm5-iio) it is polled through IIO (generic-adc-thermal; the ADC5
+ * channel already gives milli-degrees C). The thermal zones are below the cooling maps.
+ */
 &pmk8350_vadc {
-	status = "disabled";
+	channel@603 {
+		reg = <PMK8350_ADC7_DIE_TEMP>;
+		qcom,pre-scaling = <1 1>;
+		label = "pmk8350_die_temp";
+	};
+
+	channel@644 {
+		reg = <PMK8350_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "pmk8350_xo_therm";
+	};
+};
+
+&pmk8350_adc_tm {
+	status = "okay";
+
+	xo-therm@0 {
+		reg = <0>;
+		io-channels = <&pmk8350_vadc PMK8350_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+};
+
+&pm6125_adc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&msm_therm_default &rear_cam_flash_therm_default &pa_therm2_default>;
+
+	/* pm6125.dtsi's XO thermistor channel: this board's XO thermistor is on the PMK8350 */
+	/delete-node/ channel@4c;
+
+	channel@4d {
+		reg = <ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "pa_therm1";
+	};
+
+	channel@4e {
+		reg = <ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "quiet_therm";
+	};
+
+	channel@52 {
+		reg = <ADC5_GPIO1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "msm_therm";
+	};
+
+	channel@54 {
+		reg = <ADC5_GPIO3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "rear_cam_flash_therm";
+	};
+
+	channel@55 {
+		reg = <ADC5_GPIO4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "pa_therm2";
+	};
+};
+
+&pm6125_adc_tm {
+	status = "okay";
+
+	pa-therm1@0 {
+		reg = <0>;
+		io-channels = <&pm6125_adc ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	quiet-therm@1 {
+		reg = <1>;
+		io-channels = <&pm6125_adc ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	rear-cam-flash-therm@2 {
+		reg = <2>;
+		io-channels = <&pm6125_adc ADC5_GPIO3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	pa-therm2@3 {
+		reg = <3>;
+		io-channels = <&pm6125_adc ADC5_GPIO4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+};
+
+/* the thermistor inputs among PM6125's GPIOs (downstream *_therm_default) */
+&pm6125_gpios {
+	msm_therm_default: msm-therm-default-state {
+		pins = "gpio3";
+		function = "normal";
+		bias-high-impedance;
+	};
+
+	rear_cam_flash_therm_default: rear-cam-flash-therm-default-state {
+		pins = "gpio6";
+		function = "normal";
+		bias-high-impedance;
+	};
+
+	pa_therm2_default: pa-therm2-default-state {
+		pins = "gpio7";
+		function = "normal";
+		bias-high-impedance;
+	};
 };
 
 &pmr735a_gpios {
@@ -2154,7 +2286,8 @@
  * first passive trip on, step_wise lowers the A55 policy (cpu0), the A78 policy (cpu6) or the GPU,
  * re-evaluating every 250 ms while above it (the zones have no polling at all otherwise, so a
  * trip crossing gave a single step), as sm6115 and sm8250 do.
- * cpu-unk0/1 (tsens 11, 12) stay unbound: which cores they watch is unknown.
+ * cpu-unk0/1 (tsens 11, 12) are the A78 cluster's third and fourth sensors: downstream calls them
+ * cpu-1-2/cpu-1-3 and throttles cpu@600 from them, as from tsens 9 and 10 (cpu6/cpu7 here).
  */
 
 &{/thermal-zones/cpu0-thermal} {
@@ -2278,6 +2411,28 @@
 	};
 };
 
+&{/thermal-zones/cpu-unk0-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu_unk0_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&{/thermal-zones/cpu-unk1-thermal} {
+	polling-delay-passive = <250>;
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu_unk1_alert0>;
+			cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
 &{/thermal-zones/gpuss1-thermal} {
 	polling-delay-passive = <250>;
 
@@ -2285,6 +2440,121 @@
 		map0 {
 			trip = <&gpuss1_alert0>;
 			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+/*
+ * Board thermistor zones (the ADC_TM channels above). quiet_therm is downstream's skin sensor
+ * (its quiet-therm-step zone, disabled there: Xiaomi's userspace throttles): here, as a box that
+ * mostly sits on a charger, from 55 C step_wise lowers both CPU policies and the GPU, and 80 C
+ * shuts down (the battery is past its limits by then). The others carry only a critical trip, as
+ * on sm6125-xiaomi-laurel-sprout: no cooling device here for what heats them (modem PAs, camera).
+ */
+/ {
+	msm_therm_sensor: thermal-sensor-msm {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pm6125_adc ADC5_GPIO1_100K_PU>;
+		io-channel-names = "sensor-channel";
+	};
+
+	thermal-zones {
+		xo-thermal {
+			thermal-sensors = <&pmk8350_adc_tm 0>;
+
+			trips {
+				trip-point0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		pa-therm1-thermal {
+			thermal-sensors = <&pm6125_adc_tm 0>;
+
+			trips {
+				trip-point0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		quiet-thermal {
+			polling-delay-passive = <1000>;
+			thermal-sensors = <&pm6125_adc_tm 1>;
+
+			trips {
+				quiet_alert0: trip-point0 {
+					temperature = <55000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				trip-point1 {
+					temperature = <80000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&quiet_alert0>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map1 {
+					trip = <&quiet_alert0>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
+				map2 {
+					trip = <&quiet_alert0>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		msm-thermal {
+			polling-delay = <5000>;
+			thermal-sensors = <&msm_therm_sensor>;
+
+			trips {
+				trip-point0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		cam-flash-thermal {
+			thermal-sensors = <&pm6125_adc_tm 2>;
+
+			trips {
+				trip-point0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		pa-therm2-thermal {
+			thermal-sensors = <&pm6125_adc_tm 3>;
+
+			trips {
+				trip-point0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
 		};
 	};
 };

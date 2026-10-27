@@ -24,6 +24,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Cellular | mobile data through IPA v4.11 and ModemManager (tested with an IoT SIM) |
 | Sensors | accelerometer, gyroscope, light, proximity, magnetometer and compass through the ADSP's SSC (hexagonrpcd with writes, libssc, iio-sensor-proxy); GNOME auto-rotate |
 | Other | vibration motor, IR transmitter |
+| Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C |
 | Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, QRTR HELLO fix (0010) for the modem's init stall; audio and sensors come back after an ADSP restart |
 | Not working | earpiece, voice calls, SMS (untested), autofocus (the software ISP has none), fingerprint, suspend, pstore; no NFC chip in this unit |
 
