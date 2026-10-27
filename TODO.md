@@ -379,9 +379,15 @@
   - [x] 主攝：自動對焦（2026-10-27）：libcamera 0.7.0（和 Ubuntu 同版本）加本地補丁 `tools/ubuntu/libcamera-sunstone-af.patch`，
         `add-libcamera-af.sh` 編進 /usr/local（同 SONAME，`libdir=lib/aarch64-linux-gnu`，否則加載器先找到 Ubuntu 的；
         裝完檢查 PipeWire 插件要的符號都在）。軟件 ISP 的統計加清晰度（中心 1/9，同色相鄰像素差的平方和，按亮度² 歸一），
-        simple IPA 加 `Af`（粗掃 48、過峰提前停、細掃 12，連續模式默認；清晰度掉到 60% 以下 4 次重掃，只有亮度變化時
-        只換基準），simple 管線經 CameraLens 移鏡頭；`ov48b2q.yaml` 調參（320–1023，無對比度時 472）。`cam` 實測：
-        320→608 粗掃、464–560 細掃，對焦在 512（比最差高約 17 倍），約 2.3 s；前攝、景深攝不受影響。用戶用 Snapshot 看沒做。
+        simple IPA 加 `Af`，simple 管線經 CameraLens 移鏡頭。第二版（用户第一次試：能對上但不靈敏、可能虛焦；日誌：手持
+        移動時掃出虛焦峰、虛焦後基準低不再重掃、過曝畫面也「對焦」）：畫面穩定（兩個採樣亮度差 <8%、清晰度差 <25%）且
+        亮度 12–210 才掃，掃描中亮度變 >15% 放棄，掃完驗證（<70% 掃描最好值就重掃，最多兩次），場景變化後先在原位 ±32
+        細查、峰在邊上才全掃，細掃 16 + 拋物線插值，最後從下方接近（音圈回差），對比度 <1.5 倍或清晰度 <0.001 算失敗。
+        實測距離（用户對着 2 m 和窗外）：無窮遠約 420、2 m 約 438，約 `420 + 34000/距離 mm`（30 cm ≈ 530）；以前「遠景最清晰
+        464–480」其實約 0.7 m。`ov48b2q.yaml`：384–1023，`fixedPosition: 438`。固定對焦（GoPro 式，約 1 m 到無窮遠）：
+        `sunstone-camera-focus fixed|auto`（寫 /usr/local/etc/libcamera/configuration.yaml 的 `software_isp.focus`，重啟
+        PipeWire），默認自動。udev 起始位置改 438。cam：一次掃描約 1.6 s；平坦畫面判失敗停 438；固定模式直接 438。
+        用户第二輪 Snapshot 試第二版之後的改動（回差、門檻）沒再試。
   - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報

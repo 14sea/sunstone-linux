@@ -1,0 +1,27 @@
+#!/bin/sh
+# sunstone: main camera focus mode for the libcamera from tools/ubuntu/add-libcamera-af.sh.
+#   sunstone-camera-focus [auto|fixed]     (no argument: show the mode)
+# auto: contrast detection autofocus (the default). fixed: the lens held at about 2 m (the tuning's
+# fixedPosition), sharp from about 1 m to infinity, like a fixed focus camera. Written to libcamera's
+# global configuration (software_isp.focus); a running PipeWire is restarted to read it.
+C=/usr/local/etc/libcamera/configuration.yaml
+case ${1:-} in
+"")
+	grep -q 'focus: fixed' "$C" 2>/dev/null && echo fixed || echo auto
+	exit 0 ;;
+auto)
+	rm -f "$C" ;;
+fixed)
+	mkdir -p "${C%/*}"
+	printf -- '---\nversion: 1\nconfiguration:\n  software_isp:\n    focus: fixed\n' > "$C" ;;
+*)
+	echo "usage: ${0##*/} [auto|fixed]" >&2
+	exit 1 ;;
+esac
+for u in $(loginctl list-users --no-legend 2>/dev/null | awk '{ print $2 }'); do
+	id=$(id -u "$u") || continue
+	runuser -u "$u" -- env XDG_RUNTIME_DIR=/run/user/$id systemctl --user -q is-active pipewire 2>/dev/null || continue
+	runuser -u "$u" -- env XDG_RUNTIME_DIR=/run/user/$id systemctl --user restart wireplumber pipewire pipewire-pulse
+	echo "restarted $u's PipeWire"
+done
+echo "main camera focus: $1"

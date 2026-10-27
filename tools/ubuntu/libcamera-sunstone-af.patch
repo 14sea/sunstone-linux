@@ -1,4 +1,4 @@
-From 705948ce03ff56a74645fb8c46ffc0806883027d Mon Sep 17 00:00:00 2001
+From ef12a31dc0409110b870341f1074011683708acd Mon Sep 17 00:00:00 2001
 From: 14sea <14sea@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 15:42:26 +0000
 Subject: [PATCH] software_isp, ipa: simple: contrast detection autofocus
@@ -13,18 +13,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  .../internal/software_isp/software_isp.h      |   2 +
  .../internal/software_isp/swisp_stats.h       |  13 +
  .../internal/software_isp/swstats_cpu.h       |   8 +
- include/libcamera/ipa/soft.mojom              |   5 +
- src/ipa/simple/algorithms/af.cpp              | 289 ++++++++++++++++++
- src/ipa/simple/algorithms/af.h                |  80 +++++
+ include/libcamera/ipa/soft.mojom              |   7 +
+ src/ipa/simple/algorithms/af.cpp              | 405 ++++++++++++++++++
+ src/ipa/simple/algorithms/af.h                |  96 +++++
  src/ipa/simple/algorithms/meson.build         |   1 +
  src/ipa/simple/data/meson.build               |   1 +
- src/ipa/simple/data/ov48b2q.yaml              |  17 ++
+ src/ipa/simple/data/ov48b2q.yaml              |  19 +
  src/ipa/simple/ipa_context.h                  |  10 +
  src/ipa/simple/soft_simple.cpp                |   9 +
- src/libcamera/pipeline/simple/simple.cpp      |  21 ++
+ src/libcamera/pipeline/simple/simple.cpp      |  24 ++
  src/libcamera/software_isp/software_isp.cpp   |  11 +
- src/libcamera/software_isp/swstats_cpu.cpp    |  77 +++++
- 14 files changed, 544 insertions(+)
+ src/libcamera/software_isp/swstats_cpu.cpp    |  77 ++++
+ 14 files changed, 683 insertions(+)
  create mode 100644 src/ipa/simple/algorithms/af.cpp
  create mode 100644 src/ipa/simple/algorithms/af.h
  create mode 100644 src/ipa/simple/data/ov48b2q.yaml
@@ -104,10 +104,10 @@ index 64b3e23..677e07b 100644
  
  	unsigned int xShift_;
 diff --git a/include/libcamera/ipa/soft.mojom b/include/libcamera/ipa/soft.mojom
-index 77328c5..6389633 100644
+index 77328c5..ac91156 100644
 --- a/include/libcamera/ipa/soft.mojom
 +++ b/include/libcamera/ipa/soft.mojom
-@@ -10,6 +10,10 @@ import "include/libcamera/ipa/core.mojom";
+@@ -10,6 +10,12 @@ import "include/libcamera/ipa/core.mojom";
  
  struct IPAConfigInfo {
  	libcamera.ControlInfoMap sensorControls;
@@ -115,10 +115,12 @@ index 77328c5..6389633 100644
 +	bool lensPresent;
 +	int32 lensMin;
 +	int32 lensMax;
++	/* hold the lens at the tuning's fixed position (software_isp.focus: fixed) */
++	bool fixedFocus;
  };
  
  interface IPASoftInterface {
-@@ -33,6 +37,7 @@ interface IPASoftInterface {
+@@ -33,6 +39,7 @@ interface IPASoftInterface {
  
  interface IPASoftEventInterface {
  	setSensorControls(libcamera.ControlList sensorControls);
@@ -128,10 +130,10 @@ index 77328c5..6389633 100644
  };
 diff --git a/src/ipa/simple/algorithms/af.cpp b/src/ipa/simple/algorithms/af.cpp
 new file mode 100644
-index 0000000..f0a1e23
+index 0000000..d73dde5
 --- /dev/null
 +++ b/src/ipa/simple/algorithms/af.cpp
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,405 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/*
 + * Contrast detection autofocus for the software ISP
@@ -153,28 +155,42 @@ index 0000000..f0a1e23
 + * The focus measure is the software ISP's sharpness statistic (squared
 + * differences of same-colour neighbours in the centre ninth of the image),
 + * divided by the squared mean level there so that exposure and gain changes
-+ * cancel out. A scan steps the lens through its range in coarse steps,
-+ * stopping early once well past a peak, then around the best position in
-+ * fine steps, and leaves the lens at the sharpest one. Each statistics
-+ * sample (every SwStatsCpu::kStatPerNumFrames frames) measures the position
-+ * set at the previous one.
++ * cancel out. Each statistics sample (every SwStatsCpu::kStatPerNumFrames
++ * frames) measures the lens position set at the previous one.
++ *
++ * A full scan steps the lens through its range in coarse steps, from the far
++ * end, stopping once well past a peak; a fine scan around the best position
++ * follows, and the lens goes to the peak of a parabola through the best fine
++ * sample and its neighbours, from below like the scans: the actuator (a voice
++ * coil) does not end up in the same place coming from above. A scan only starts on a still scene (two samples
++ * in a row with about the same level and measure) that is neither too dark
++ * nor saturated, and is abandoned when the level moves during it (the camera
++ * moved). After a scan, the first sample at the chosen position must be
++ * close to the best one of the scan, or the scene changed meanwhile and it is
++ * scanned again.
 + *
 + * In continuous mode (the default, as applications through PipeWire set no
-+ * focus controls) the scene is watched once focused: when the measure falls
-+ * well below what it was after focusing for several samples in a row, the
-+ * lens is scanned again. A change of brightness alone (AGC, lighting) only
-+ * resets that reference.
++ * focus controls) the focused scene is watched: when the measure falls below
++ * rescanDrop of the focused one, or the level changes by more than
++ * rescanLevel, for rescanSamples samples, the lens is checked again as soon
++ * as the scene is still. A brightness change alone only gets a fine scan
++ * around the current position; when its best sample is at either end of it,
++ * or the measure had dropped, a full scan follows.
++ *
++ * With the global configuration option software_isp.focus (environment
++ * variable LIBCAMERA_SOFTISP_FOCUS) set to "fixed", the lens is held at
++ * fixedPosition instead, like a fixed focus camera focused at its
++ * hyperfocal distance.
 + *
 + * Tuning parameters (all optional):
 + * - rangeMin, rangeMax: lens positions to scan (default: the lens range)
-+ * - coarseStep, fineStep: scan steps (48, 12)
-+ * - defaultPosition: where to leave the lens when the scene has no contrast
-+ *   (default: rangeMin)
-+ * - minContrast: best / worst measure of a scan below which it failed (1.2)
-+ * - rescanDrop, rescanSamples: rescan when the measure falls below rescanDrop
-+ *   times the focused one for rescanSamples samples (0.6, 4)
-+ * - rescanLevel: a level change of more than this fraction (0.3) for
-+ *   rescanSamples samples, without a drop, resets the reference
++ * - coarseStep, fineStep: scan steps (48, 16)
++ * - fixedPosition: the position for the fixed focus, and where the lens goes
++ *   when a scan finds no contrast (default: rangeMin)
++ * - minContrast, minMeasure: a scan whose best / worst measure is below
++ *   minContrast, or whose best measure is below minMeasure, failed (1.5,
++ *   1e-3)
++ * - rescanDrop, rescanLevel, rescanSamples: see above (0.6, 0.3, 3)
 + */
 +
 +namespace libcamera {
@@ -183,17 +199,33 @@ index 0000000..f0a1e23
 +
 +LOG_DEFINE_CATEGORY(IPASoftAf)
 +
++namespace {
++
++/* mean levels (8 bit) between which a scan can find focus */
++constexpr double kMinLevel = 12.0;
++constexpr double kMaxLevel = 210.0;
++/* level and measure changes still taken as the same scene */
++constexpr double kStillLevel = 0.08;
++constexpr double kStillMeasure = 0.25;
++/* level change during a scan that abandons it */
++constexpr double kScanLevel = 0.15;
++/* the measure after a scan must reach this fraction of the scan's best */
++constexpr double kVerify = 0.7;
++
++} /* namespace */
++
 +int Af::init(IPAContext &context, const YamlObject &tuningData)
 +{
 +	rangeMin_ = tuningData["rangeMin"].get<int32_t>(-1);
 +	rangeMax_ = tuningData["rangeMax"].get<int32_t>(-1);
 +	coarseStep_ = std::max(tuningData["coarseStep"].get<int32_t>(48), 1);
-+	fineStep_ = std::max(tuningData["fineStep"].get<int32_t>(12), 1);
-+	defaultPosition_ = tuningData["defaultPosition"].get<int32_t>(-1);
-+	minContrast_ = tuningData["minContrast"].get<double>(1.2);
++	fineStep_ = std::max(tuningData["fineStep"].get<int32_t>(16), 1);
++	fixedPosition_ = tuningData["fixedPosition"].get<int32_t>(-1);
++	minContrast_ = tuningData["minContrast"].get<double>(1.5);
++	minMeasure_ = tuningData["minMeasure"].get<double>(1e-3);
 +	rescanDrop_ = tuningData["rescanDrop"].get<double>(0.6);
 +	rescanLevel_ = tuningData["rescanLevel"].get<double>(0.3);
-+	rescanSamples_ = tuningData["rescanSamples"].get<uint32_t>(4);
++	rescanSamples_ = tuningData["rescanSamples"].get<uint32_t>(3);
 +
 +	context.ctrlMap[&controls::AfMode] =
 +		ControlInfo(controls::AfModeValues, ControlValue(controls::AfModeContinuous));
@@ -202,7 +234,7 @@ index 0000000..f0a1e23
 +	return 0;
 +}
 +
-+int Af::configure(IPAContext &context, [[maybe_unused]] const IPAConfigInfo &configInfo)
++int Af::configure(IPAContext &context, const IPAConfigInfo &configInfo)
 +{
 +	const auto &lens = context.configuration.lens;
 +
@@ -214,23 +246,31 @@ index 0000000..f0a1e23
 +
 +	min_ = rangeMin_ >= 0 ? std::clamp(rangeMin_, lens.min, lens.max) : lens.min;
 +	max_ = rangeMax_ >= 0 ? std::clamp(rangeMax_, min_, lens.max) : lens.max;
-+	if (defaultPosition_ < 0)
-+		defaultPosition_ = min_;
-+	defaultPosition_ = std::clamp(defaultPosition_, min_, max_);
++	if (fixedPosition_ < 0)
++		fixedPosition_ = min_;
++	fixedPosition_ = std::clamp(fixedPosition_, min_, max_);
 +
-+	mode_ = controls::AfModeContinuous;
-+	phase_ = Phase::Idle;
++	fixed_ = configInfo.fixedFocus;
++	mode_ = fixed_ ? controls::AfModeManual : controls::AfModeContinuous;
 +	failed_ = false;
-+	haveBaseline_ = false;
-+	if (mode_ == controls::AfModeContinuous)
-+		startScan();
++	verifyFailures_ = 0;
++	position_ = -1;
++	if (fixed_) {
++		phase_ = Phase::Idle;
++		moveTo(context, fixedPosition_);
++	} else {
++		wait(true);
++	}
 +
-+	LOG(IPASoftAf, Info) << "Lens range " << min_ << "-" << max_;
++	LOG(IPASoftAf, Info)
++		<< "Lens range " << min_ << "-" << max_ << ", "
++		<< (fixed_ ? "fixed focus at " : "autofocus, no contrast: ")
++		<< fixedPosition_;
 +
 +	return 0;
 +}
 +
-+void Af::queueRequest([[maybe_unused]] IPAContext &context,
++void Af::queueRequest(IPAContext &context,
 +		      [[maybe_unused]] const uint32_t frame,
 +		      [[maybe_unused]] IPAFrameContext &frameContext,
 +		      const ControlList &controls)
@@ -242,31 +282,22 @@ index 0000000..f0a1e23
 +	if (mode && *mode != mode_) {
 +		mode_ = static_cast<controls::AfModeEnum>(*mode);
 +		LOG(IPASoftAf, Debug) << "AfMode " << *mode;
-+		if (mode_ == controls::AfModeContinuous)
-+			startScan();
-+		else
++		if (mode_ == controls::AfModeContinuous) {
++			wait(true);
++		} else {
 +			phase_ = Phase::Idle;
++			if (fixed_)
++				moveTo(context, fixedPosition_);
++		}
 +	}
 +
 +	const auto &trigger = controls.get(controls::AfTrigger);
 +	if (trigger && mode_ == controls::AfModeAuto) {
 +		if (*trigger == controls::AfTriggerStart)
-+			startScan();
++			wait(true);
 +		else if (*trigger == controls::AfTriggerCancel)
 +			phase_ = Phase::Idle;
 +	}
-+}
-+
-+void Af::startScan()
-+{
-+	phase_ = Phase::Coarse;
-+	failed_ = false;
-+	haveBaseline_ = false;
-+	/* the first sample(s) wait for AGC to settle, then move to the start */
-+	wait_ = startSamples_;
-+	position_ = -1;
-+	bestMeasure_ = 0.0;
-+	worstMeasure_ = 0.0;
 +}
 +
 +void Af::moveTo(IPAContext &context, int32_t position)
@@ -276,25 +307,88 @@ index 0000000..f0a1e23
 +	context.activeState.lens.pending = true;
 +}
 +
-+void Af::finishScan(IPAContext &context, int32_t position, bool found)
++void Af::wait(bool full)
 +{
-+	moveTo(context, position);
-+	phase_ = Phase::Focused;
++	phase_ = Phase::Wait;
++	fullScan_ = full;
++	stable_ = 0;
++	lastMeasure_ = 0.0;
++	lastLevel_ = 0.0;
++}
++
++void Af::startScan(IPAContext &context, bool full, double level)
++{
++	failed_ = false;
++	scanLevel_ = level;
++	samples_.clear();
++	bestMeasure_ = 0.0;
++	worstMeasure_ = 0.0;
++
++	if (!full && position_ >= 0) {
++		startFine(context, position_, 2 * fineStep_);
++		return;
++	}
++
++	phase_ = Phase::Coarse;
++	step_ = coarseStep_;
++	scanEnd_ = max_;
++	moveTo(context, min_);
++}
++
++void Af::startFine(IPAContext &context, int32_t centre, int32_t halfWidth)
++{
++	phase_ = Phase::Fine;
++	step_ = fineStep_;
++	samples_.clear();
++	scanEnd_ = std::min(centre + halfWidth, max_);
++	moveTo(context, centre - halfWidth);
++}
++
++void Af::finish(IPAContext &context, int32_t position, bool found)
++{
++	target_ = std::clamp(position, min_, max_);
++	approach_ = found && target_ < position_ && target_ - fineStep_ >= min_;
++	moveTo(context, approach_ ? target_ - fineStep_ : target_);
 +	failed_ = !found;
-+	haveBaseline_ = false;
 +	changed_ = 0;
-+	/* the sample after the move is the new baseline */
-+	wait_ = 0;
++	phase_ = found ? Phase::Verify : Phase::Focused;
++	baselineMeasure_ = 0.0;
 +
 +	LOG(IPASoftAf, Info)
-+		<< (found ? "Focused at " : "No contrast, lens at ") << position_
++		<< (found ? "Focused at " : "No contrast, lens at ") << target_
 +		<< " (measure " << bestMeasure_ << ", worst " << worstMeasure_ << ")";
 +}
 +
-+void Af::scanStep(IPAContext &context, double measure)
++/* the peak of the parabola through the best fine sample and its neighbours */
++int32_t Af::peak() const
 +{
-+	LOG(IPASoftAf, Debug) << "Position " << position_ << " measure " << measure;
++	auto best = std::max_element(samples_.begin(), samples_.end(),
++				     [](const auto &a, const auto &b) { return a.second < b.second; });
++	if (best == samples_.begin() || best + 1 == samples_.end())
++		return best->first;
 +
++	double l = (best - 1)->second, c = best->second, r = (best + 1)->second;
++	double d = l - 2 * c + r;
++	if (d >= 0.0)
++		return best->first;
++
++	double offset = std::clamp(0.5 * (l - r) / d, -0.5, 0.5);
++	return best->first + std::lround(offset * step_);
++}
++
++void Af::scanStep(IPAContext &context, double measure, double level)
++{
++	LOG(IPASoftAf, Debug) << "Position " << position_ << " measure " << measure
++			      << " level " << level;
++
++	if (std::abs(level - scanLevel_) > scanLevel_ * kScanLevel) {
++		LOG(IPASoftAf, Debug) << "Level " << level << " was " << scanLevel_
++				      << ", scene moved, scan abandoned";
++		wait(true);
++		return;
++	}
++
++	samples_.emplace_back(position_, measure);
 +	if (measure > bestMeasure_) {
 +		bestMeasure_ = measure;
 +		bestPosition_ = position_;
@@ -302,7 +396,8 @@ index 0000000..f0a1e23
 +	if (worstMeasure_ == 0.0 || measure < worstMeasure_)
 +		worstMeasure_ = measure;
 +
-+	bool contrast = bestMeasure_ > worstMeasure_ * minContrast_;
++	bool contrast = bestMeasure_ > worstMeasure_ * minContrast_ &&
++			bestMeasure_ > minMeasure_;
 +	/* well past a peak: the far side of it will not be sharper */
 +	bool pastPeak = contrast && measure < bestMeasure_ * 0.5 &&
 +			position_ >= bestPosition_ + 2 * step_;
@@ -314,23 +409,47 @@ index 0000000..f0a1e23
 +
 +	if (phase_ == Phase::Coarse) {
 +		if (!contrast) {
-+			finishScan(context, defaultPosition_, false);
++			finish(context, fixedPosition_, false);
 +			return;
 +		}
-+		phase_ = Phase::Fine;
-+		step_ = fineStep_;
-+		scanEnd_ = std::min(bestPosition_ + coarseStep_, max_);
-+		moveTo(context, bestPosition_ - coarseStep_);
++		startFine(context, bestPosition_, coarseStep_ * 2 / 3);
 +		return;
 +	}
 +
-+	finishScan(context, bestPosition_, true);
++	/* a check around the old position whose best sample is at an end missed the peak */
++	int32_t first = samples_.front().first, last = samples_.back().first;
++	bool atEnd = (bestPosition_ == first && first > min_) ||
++		     (bestPosition_ == last && last < max_);
++	if (atEnd && !fullScan_) {
++		LOG(IPASoftAf, Debug) << "Peak outside the check, full scan";
++		fullScan_ = true;
++		startScan(context, true, level);
++		return;
++	}
++
++	finish(context, peak(), contrast || !fullScan_);
++}
++
++void Af::waitStep(IPAContext &context, double measure, double level)
++{
++	bool exposed = level >= kMinLevel && level <= kMaxLevel;
++	bool still = lastLevel_ > 0.0 &&
++		     std::abs(level - lastLevel_) <= lastLevel_ * kStillLevel &&
++		     std::abs(measure - lastMeasure_) <=
++			     std::max(measure, lastMeasure_) * kStillMeasure;
++
++	lastLevel_ = level;
++	lastMeasure_ = measure;
++	stable_ = exposed && still ? stable_ + 1 : 0;
++	if (stable_ < 2)
++		return;
++
++	startScan(context, fullScan_, level);
 +}
 +
 +void Af::watch(double measure, double level)
 +{
-+	if (!haveBaseline_) {
-+		haveBaseline_ = true;
++	if (baselineMeasure_ == 0.0) {
 +		baselineMeasure_ = measure;
 +		baselineLevel_ = level;
 +		return;
@@ -343,31 +462,17 @@ index 0000000..f0a1e23
 +		changed_ = 0;
 +		/* follow slow changes */
 +		baselineMeasure_ = 0.8 * baselineMeasure_ + 0.2 * measure;
++		baselineLevel_ = 0.8 * baselineLevel_ + 0.2 * level;
 +		return;
 +	}
 +
-+	if (++changed_ < rescanSamples_)
-+		return;
-+
-+	/*
-+	 * Light alone (AGC still converging after the scan, a lamp switched
-+	 * on) does not defocus: take the new state as the baseline.
-+	 */
-+	if (!dropped) {
-+		LOG(IPASoftAf, Debug)
-+			<< "Level " << level << " was " << baselineLevel_ << ", new baseline";
-+		haveBaseline_ = false;
-+		changed_ = 0;
-+		return;
-+	}
-+
-+	if (mode_ != controls::AfModeContinuous)
++	if (++changed_ < rescanSamples_ || mode_ != controls::AfModeContinuous)
 +		return;
 +
 +	LOG(IPASoftAf, Debug)
 +		<< "Scene changed (measure " << measure << " was " << baselineMeasure_
-+		<< ", level " << level << " was " << baselineLevel_ << "), rescanning";
-+	startScan();
++		<< ", level " << level << " was " << baselineLevel_ << ")";
++	wait(dropped || failed_);
 +}
 +
 +void Af::process(IPAContext &context,
@@ -380,7 +485,8 @@ index 0000000..f0a1e23
 +		return;
 +
 +	int32_t state = controls::AfStateIdle;
-+	if (phase_ == Phase::Coarse || phase_ == Phase::Fine)
++	if (phase_ == Phase::Wait || phase_ == Phase::Coarse ||
++	    phase_ == Phase::Fine || phase_ == Phase::Verify)
 +		state = controls::AfStateScanning;
 +	else if (phase_ == Phase::Focused)
 +		state = failed_ ? controls::AfStateFailed : controls::AfStateFocused;
@@ -395,25 +501,37 @@ index 0000000..f0a1e23
 +	double measure = static_cast<double>(stats->sharpness) / stats->sharpnessCount /
 +			 (level * level);
 +
-+	if (wait_) {
-+		wait_--;
-+		return;
-+	}
-+
-+	if (phase_ == Phase::Focused) {
++	switch (phase_) {
++	case Phase::Wait:
++		waitStep(context, measure, level);
++		break;
++	case Phase::Coarse:
++	case Phase::Fine:
++		scanStep(context, measure, level);
++		break;
++	case Phase::Verify:
++		if (approach_) {
++			approach_ = false;
++			moveTo(context, target_);
++			break;
++		}
++		if (measure < bestMeasure_ * kVerify && verifyFailures_ < 2) {
++			LOG(IPASoftAf, Debug) << "Measure " << measure << " at " << position_
++					      << ", scan best " << bestMeasure_ << ": again";
++			verifyFailures_++;
++			wait(true);
++			break;
++		}
++		verifyFailures_ = 0;
++		phase_ = Phase::Focused;
 +		watch(measure, level);
-+		return;
++		break;
++	case Phase::Focused:
++		watch(measure, level);
++		break;
++	case Phase::Idle:
++		break;
 +	}
-+
-+	if (position_ < 0) {
-+		/* start of a scan: the lens is not at a scan position yet */
-+		step_ = coarseStep_;
-+		scanEnd_ = max_;
-+		moveTo(context, min_);
-+		return;
-+	}
-+
-+	scanStep(context, measure);
 +}
 +
 +REGISTER_IPA_ALGORITHM(Af, "Af")
@@ -423,10 +541,10 @@ index 0000000..f0a1e23
 +} /* namespace libcamera */
 diff --git a/src/ipa/simple/algorithms/af.h b/src/ipa/simple/algorithms/af.h
 new file mode 100644
-index 0000000..7622e4c
+index 0000000..8464192
 --- /dev/null
 +++ b/src/ipa/simple/algorithms/af.h
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,96 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/*
 + * Contrast detection autofocus for the software ISP
@@ -435,6 +553,7 @@ index 0000000..7622e4c
 +#pragma once
 +
 +#include <stdint.h>
++#include <vector>
 +
 +#include <libcamera/control_ids.h>
 +
@@ -461,44 +580,59 @@ index 0000000..7622e4c
 +		     ControlList &metadata) override;
 +
 +private:
-+	enum class Phase { Idle, Coarse, Fine, Focused };
++	enum class Phase { Idle, Wait, Coarse, Fine, Verify, Focused };
 +
-+	void startScan();
++	void wait(bool full);
++	void startScan(IPAContext &context, bool full, double level);
++	void startFine(IPAContext &context, int32_t centre, int32_t halfWidth);
 +	void moveTo(IPAContext &context, int32_t position);
-+	void finishScan(IPAContext &context, int32_t position, bool found);
-+	void scanStep(IPAContext &context, double measure);
++	void finish(IPAContext &context, int32_t position, bool found);
++	void scanStep(IPAContext &context, double measure, double level);
++	void waitStep(IPAContext &context, double measure, double level);
 +	void watch(double measure, double level);
++	int32_t peak() const;
 +
 +	/* tuning */
 +	int32_t rangeMin_ = -1;
 +	int32_t rangeMax_ = -1;
 +	int32_t coarseStep_ = 48;
-+	int32_t fineStep_ = 12;
-+	int32_t defaultPosition_ = -1;
-+	double minContrast_ = 1.2;
++	int32_t fineStep_ = 16;
++	int32_t fixedPosition_ = -1;
++	double minContrast_ = 1.5;
++	double minMeasure_ = 1e-3;
 +	double rescanDrop_ = 0.6;
 +	double rescanLevel_ = 0.3;
-+	unsigned int rescanSamples_ = 4;
-+	unsigned int startSamples_ = 4;
++	unsigned int rescanSamples_ = 3;
 +
 +	/* session */
 +	bool enabled_ = false;
++	bool fixed_ = false;
 +	int32_t min_ = 0, max_ = 0;
 +	controls::AfModeEnum mode_ = controls::AfModeContinuous;
 +	Phase phase_ = Phase::Idle;
 +	bool failed_ = false;
-+	unsigned int wait_ = 0;
++
++	/* waiting for a still, well exposed scene */
++	bool fullScan_ = true;
++	unsigned int stable_ = 0;
++	double lastMeasure_ = 0.0;
++	double lastLevel_ = 0.0;
 +
 +	/* scan */
-+	int32_t position_ = 0;
++	int32_t position_ = -1;
 +	int32_t scanEnd_ = 0;
 +	int32_t step_ = 0;
++	double scanLevel_ = 0.0;
++	std::vector<std::pair<int32_t, double>> samples_;
 +	int32_t bestPosition_ = 0;
 +	double bestMeasure_ = 0.0;
 +	double worstMeasure_ = 0.0;
++	unsigned int verifyFailures_ = 0;
++	/* the chosen position, approached from below like the scans (VCM hysteresis) */
++	int32_t target_ = 0;
++	bool approach_ = false;
 +
 +	/* focused */
-+	bool haveBaseline_ = false;
 +	double baselineMeasure_ = 0.0;
 +	double baselineLevel_ = 0.0;
 +	unsigned int changed_ = 0;
@@ -533,16 +667,18 @@ index 92795ee..6c76d44 100644
  
 diff --git a/src/ipa/simple/data/ov48b2q.yaml b/src/ipa/simple/data/ov48b2q.yaml
 new file mode 100644
-index 0000000..4f6e30e
+index 0000000..06d0fc7
 --- /dev/null
 +++ b/src/ipa/simple/data/ov48b2q.yaml
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,19 @@
 +# SPDX-License-Identifier: CC0-1.0
 +%YAML 1.1
 +---
 +# Xiaomi Redmi Note 12 5G (sunstone) main camera: uncalibrated.yaml plus autofocus for its DW9800
-+# actuator. The lens does not move below about 350 (0-320 is its rest) and is sharpest on far
-+# scenes at 464-480.
++# actuator. The lens does not move below about 350 (0-320 is its rest). Measured (2026-10-27):
++# infinity at about 420, 2 m at about 438; roughly 420 + 34000 / distance in mm (30 cm: ~530).
++# fixedPosition: about 2 m, the hyperfocal distance (sharp from about 1 m to infinity at 2 MP),
++# for software_isp.focus: fixed and for scenes without contrast.
 +version: 1
 +algorithms:
 +  - BlackLevel:
@@ -550,9 +686,9 @@ index 0000000..4f6e30e
 +  - Adjust:
 +  - Agc:
 +  - Af:
-+      rangeMin: 320
++      rangeMin: 384
 +      rangeMax: 1023
-+      defaultPosition: 472
++      fixedPosition: 438
 +...
 diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
 index 34f7403..ff3aa4f 100644
@@ -610,7 +746,7 @@ index 6bef597..84a90d8 100644
  	if (!sensorControls.contains(V4L2_CID_EXPOSURE) ||
  	    !sensorControls.contains(V4L2_CID_ANALOGUE_GAIN)) {
 diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
-index 4a0b9f5..28bbae7 100644
+index 4a0b9f5..8002c40 100644
 --- a/src/libcamera/pipeline/simple/simple.cpp
 +++ b/src/libcamera/pipeline/simple/simple.cpp
 @@ -33,6 +33,7 @@
@@ -652,11 +788,14 @@ index 4a0b9f5..28bbae7 100644
  void SimpleCameraData::setSensorControls(const ControlList &sensorControls)
  {
  	delayedCtrls_->push(sensorControls);
-@@ -1593,6 +1604,16 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
+@@ -1593,6 +1604,19 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
  	} else {
  		ipa::soft::IPAConfigInfo configInfo;
  		configInfo.sensorControls = data->sensor_->controls();
 +		configInfo.lensPresent = false;
++		configInfo.fixedFocus =
++			cameraManager()->_d()->configuration().envOption(
++				"LIBCAMERA_SOFTISP_FOCUS", { "software_isp", "focus" }) == "fixed";
 +		CameraLens *lens = data->sensor_->focusLens();
 +		if (lens) {
 +			auto it = lens->controls().find(V4L2_CID_FOCUS_ABSOLUTE);

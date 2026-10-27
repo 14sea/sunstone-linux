@@ -1,7 +1,7 @@
-# sunstone: the main camera's lens (DW9800, driver dw9719) starts at about the far focus. Ubuntu's
-# libcamera has no autofocus and leaves it there; the one from tools/ubuntu/add-libcamera-af.sh
-# scans from here on while the camera streams. Measured on a far scene (boot-164):
-# the lens moves above about 350 (0-320 all the same, its rest), sharpest at 464-480. The driver
-# keeps the value and moves the lens there while the main camera streams (the actuator is powered
-# only then: kernel/patches/0023, 0024).
-ACTION=="add", SUBSYSTEM=="video4linux", ATTR{name}=="dw9719 *", RUN+="/usr/bin/v4l2-ctl -d $devnode -c focus_absolute=480"
+# sunstone: the main camera's lens (DW9800, driver dw9719) starts at about 2 m, the hyperfocal
+# distance (sharp from about 1 m to infinity). Ubuntu's libcamera has no autofocus and leaves it
+# there; the one from tools/ubuntu/add-libcamera-af.sh scans from here on while the camera streams.
+# Measured (2026-10-27): infinity at about 420, 2 m at about 438, 30 cm at about 530; the lens does
+# not move below about 350 (0-320 is its rest). The driver keeps the value and moves the lens
+# there whenever the camera is in use.
+ACTION=="add", SUBSYSTEM=="video4linux", ATTR{name}=="dw9719 *", RUN+="/usr/bin/v4l2-ctl -d $devnode -c focus_absolute=438"
