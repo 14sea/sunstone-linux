@@ -1,0 +1,4 @@
+# sunstone: mount the microSD card again when it comes back (the SIM/microSD tray was out). The fstab
+# entry (LABEL=sdcard, nofail) is only started at boot; when the card goes, systemd stops the mount,
+# and without this nothing starts it when the card is back.
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="sdcard", ENV{ID_FS_TYPE}=="ext4", ENV{SYSTEMD_WANTS}+="srv-sd.mount"

@@ -472,11 +472,14 @@
       重新分區成 GPT 一個 ext4（標籤 `sdcard`），寫 28 MB/s（direct，2 GiB）、讀 69–74 MiB/s，1 GiB 隨機數據丟緩存後
       sha256 一致，內核無 mmc 錯誤。開機自動掛載（2026-10-27）：fstab `LABEL=sdcard /srv/sd ext4 rw,noatime,nofail,
       x-systemd.device-timeout=10s 0 2`（build-rootfs.sh 也寫）；有卡時開機即掛，沒有這個標籤的卡時不報錯、不拖慢開機
-      （改標籤模擬：multi-user 7.9 s，有卡 6.0 s）。
+      （改標籤模擬：multi-user 7.9 s，有卡 6.0 s）。拔卡托時 systemd 卸載，插回不會自己再掛 → `80-sunstone-sdcard.rules`
+      （標籤 sdcard 的 ext4 出現時 `SYSTEMD_WANTS=srv-sd.mount`），unbind/bind 控制器驗證會重新掛上。掛着時拔卡托是不乾淨的
+      卸載（那次 fsck 回放了日誌，結果 clean）：要拔先 `umount /srv/sd`。
       注意：Ubuntu 26.04 的 dd 是 uutils 0.10.0，`iflag=direct` 讀文件報 `IO error: Invalid input`（不是內核問題）。
 - [x] 熱插拔卡托（SIM 和 SD 在同一個卡托）後 modem 沒有主 GW provisioning 會話：UIM 報 USIM `detected`，ModemManager 反覆建
       modem 又以 `sim-missing` 失敗，重啟 MM 也一樣。手動 `qmicli -d qrtr://0 --uim-change-provisioning-session=
       "slot=1,activate=yes,session-type=primary-gw-provisioning,aid=<USIM 的 AID>"` 後重啟 MM，馬上註冊（2026-10-27）。
       **自動恢復（2026-10-27）**：`sunstone-sim-watch.service` 每 10 s 查 UIM 卡狀態，連續兩次「有 USIM、沒有主會話」就按
       該卡的 AID 激活，40 s 後 MM 的 modem 不在或 failed 就重啟 MM。用 `activate=no` 模擬：20 s 內激活，modem 一直 registered；
-      正常開機時不動作（modem 自己開會話）。真的拔插卡托還沒測。
+      正常開機時不動作（modem 自己開會話）。用户真的拔插卡托（15:53:38）：26 s 後激活，modem 自己回到 registered（LTE + 5G NR），
+      不用重啟 MM。
