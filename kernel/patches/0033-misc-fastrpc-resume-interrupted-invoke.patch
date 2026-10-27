@@ -1,0 +1,156 @@
+misc: fastrpc: resume an interrupted invoke instead of sending it again
+
+When a signal interrupts the wait for the DSP's response, the invoke
+returns -ERESTARTSYS and leaves its context pending, and the restarted
+call allocates a new context and sends the message to the DSP again.
+Freezing tasks for s2idle does exactly that to hexagonrpcd's listener
+thread on SM4375 (Xiaomi Redmi Note 12 5G): its call carries the result
+of the sensors PD's last reverse call, the PD got it twice after the
+thaw and faulted ("EX:sensor_process:0x1:frpc_dsp:0xc8"), and the whole
+ADSP restarted.
+
+Keep an interrupted context on a per-user list, with the caller's
+reference, and when the same thread makes the call with the same scalars
+again, take it back with the new copy of the arguments and wait for it
+instead of sending it. A different call from that thread means it gave
+the first one up: drop the reference, the DSP's response frees it. Exit
+and channel removal handle the list like the pending one.
+
+The approach is that of "misc: fastrpc: fix context leak and hang on
+signal-interrupted invoke" (Anandu Krishnan E, v2, 2026-07), except that
+v2 drops the caller's reference when it saves the context, so a response
+that arrives before the retry frees it and the retry sends the call
+again, and it keeps ctx->args pointing at the copy fastrpc_invoke()
+freed, which fastrpc_put_args() writes the results through.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/misc/fastrpc.c b/drivers/misc/fastrpc.c
+index d4fac2cac..90e6a8f4d 100644
+--- a/drivers/misc/fastrpc.c
++++ b/drivers/misc/fastrpc.c
+@@ -338,6 +338,8 @@ struct fastrpc_user {
+ 	struct list_head user;
+ 	struct list_head maps;
+ 	struct list_head pending;
++	/* invokes a signal interrupted, kept for the same thread's retry */
++	struct list_head interrupted;
+ 	struct list_head mmaps;
+ 
+ 	struct fastrpc_channel_ctx *cctx;
+@@ -568,6 +570,11 @@ static void fastrpc_user_free(struct kref *ref)
+ 		fastrpc_context_put(ctx);
+ 	}
+ 
++	list_for_each_entry_safe(ctx, n, &fl->interrupted, node) {
++		list_del(&ctx->node);
++		fastrpc_context_put(ctx);
++	}
++
+ 	list_for_each_entry_safe(map, m, &fl->maps, node)
+ 		fastrpc_map_put(map);
+ 
+@@ -639,6 +646,54 @@ static void fastrpc_context_put_wq(struct work_struct *work)
+ 	fastrpc_context_put(ctx);
+ }
+ 
++/*
++ * An invoke a signal interrupted (-ERESTARTSYS) is still running on the DSP:
++ * its context waits on fl->interrupted, with the caller's reference, for the
++ * same thread to make the call again (a restarted syscall, or a retry after
++ * EINTR). Sending the message a second time would hand the DSP a duplicate:
++ * a listener's call, for one, carries the result of the reverse call the DSP
++ * waits for, and the DSP faults on getting it twice.
++ */
++static void fastrpc_context_save_interrupted(struct fastrpc_invoke_ctx *ctx)
++{
++	struct fastrpc_user *fl = ctx->fl;
++
++	spin_lock(&fl->lock);
++	list_move_tail(&ctx->node, &fl->interrupted);
++	spin_unlock(&fl->lock);
++}
++
++static struct fastrpc_invoke_ctx *
++fastrpc_context_restore_interrupted(struct fastrpc_user *fl, u32 sc,
++				    struct fastrpc_invoke_args *args)
++{
++	struct fastrpc_invoke_ctx *ctx = NULL, *ictx, *n;
++
++	spin_lock(&fl->lock);
++	list_for_each_entry_safe(ictx, n, &fl->interrupted, node) {
++		if (ictx->pid != current->pid)
++			continue;
++		if (ictx->sc != sc) {
++			/*
++			 * The thread gave the interrupted call up: drop the
++			 * caller's reference, the DSP's response frees it.
++			 */
++			list_del(&ictx->node);
++			spin_unlock(&fl->lock);
++			fastrpc_context_put(ictx);
++			return NULL;
++		}
++		ctx = ictx;
++		/* the same call again: the caller's new copy of the arguments */
++		ctx->args = args;
++		list_move_tail(&ctx->node, &fl->pending);
++		break;
++	}
++	spin_unlock(&fl->lock);
++
++	return ctx;
++}
++
+ #define CMP(aa, bb) ((aa) == (bb) ? 0 : (aa) < (bb) ? -1 : 1)
+ static int olaps_cmp(const void *a, const void *b)
+ {
+@@ -1368,6 +1423,12 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
+ 		return -EPERM;
+ 	}
+ 
++	if (!kernel) {
++		ctx = fastrpc_context_restore_interrupted(fl, sc, args);
++		if (ctx)
++			goto wait;
++	}
++
+ 	ctx = fastrpc_context_alloc(fl, kernel, sc, args);
+ 	if (IS_ERR(ctx))
+ 		return PTR_ERR(ctx);
+@@ -1390,6 +1451,7 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
+ 	if (handle > FASTRPC_MAX_STATIC_HANDLE && fl->pd == USER_PD && fl->poll_mode)
+ 		ctx->is_polled = true;
+ 
++wait:
+ 	err = fastrpc_wait_for_completion(ctx, kernel);
+ 	if (err)
+ 		goto bail;
+@@ -1416,6 +1478,7 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
+ 	}
+ 
+ 	if (err == -ERESTARTSYS) {
++		fastrpc_context_save_interrupted(ctx);
+ 		spin_lock(&fl->lock);
+ 		list_for_each_entry_safe(buf, b, &fl->mmaps, node) {
+ 			list_del(&buf->node);
+@@ -1775,6 +1838,7 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
+ 	spin_lock_init(&fl->lock);
+ 	mutex_init(&fl->mutex);
+ 	INIT_LIST_HEAD(&fl->pending);
++	INIT_LIST_HEAD(&fl->interrupted);
+ 	INIT_LIST_HEAD(&fl->maps);
+ 	INIT_LIST_HEAD(&fl->mmaps);
+ 	INIT_LIST_HEAD(&fl->user);
+@@ -2668,6 +2732,11 @@ static void fastrpc_notify_users(struct fastrpc_user *user)
+ 		ctx->retval = -EPIPE;
+ 		complete(&ctx->work);
+ 	}
++	/* a retry of an interrupted invoke ends with -EPIPE too */
++	list_for_each_entry(ctx, &user->interrupted, node) {
++		ctx->retval = -EPIPE;
++		complete(&ctx->work);
++	}
+ 	spin_unlock(&user->lock);
+ }
+ 
