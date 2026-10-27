@@ -104,8 +104,17 @@
 - [ ] lockdep 報告（調試內核，boot-53）：PSCI cpuidle 電源域 `genpd_add_subdomain` 裏 raw spinlock 下拿普通
       spinlock（Invalid wait context）；`qcom_scm_probe` → `qcom_tzmem_enable` → `qcom_scm_shm_bridge_enable`
       在原子上下文調用會睡眠的 SCM 調用。都像上游問題，和顯示無關。
-- [ ] 休眠：現在用 `sleep.conf.d` 關掉了（gsd-power 會 s2idle，USB 和 Wi-Fi 都斷）。第一次休眠按電源鍵能恢復，
-      第二次沒恢復。做電源管理時再查喚醒源和恢復路徑。
+- [ ] 休眠：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`）**，`sleep.conf.d` 仍然關着自動休眠
+      （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
+      - 以前「第二次沒恢復」：boot-180 上 pm_test freezer 就讓手機硬復位。凍結打斷 hexagonrpcd 的 fastrpc 調用，重啟的
+        ioctl 把同一調用重發，sensors PD 崩潰（本地補丁 0033 修）；ADSP 重啟時 LPASS macro 在時鐘失敗後照樣寫寄存器，
+        總線卡死（`pm_clk_resume()` 不報錯，本地補丁 0032 修）。
+      - 驗證（boot-181）：pm_test freezer ×4、devices、platform；真 s2idle：RTC 30 s、連續兩次 20 s、電源鍵（約 16 s）喚醒，
+        suspend_stats 10 次成功、0 失敗；恢復後 USB、Wi-Fi（重連）、modem、傳感器正常。設備掛起 270 ms、恢復 375 ms，
+        最慢 wiphy（約 220–290 ms）。`rtcwake -m freeze -s N`（RTC 不是 UTC 牆鐘，rtcwake 打印 1972 年，無害）。
+      - 剩下：**RPM vmin/vlow 計數一直是 0**（空閒和 s2idle 都是），SoC 從沒進 XO 關閉/最低電壓，vlow 的 Client Votes
+        0x7030703，要查是誰的投票（APSS 的 RPM 時鐘、interconnect、modem/ADSP/WLAN）；Wi-Fi 喚醒（WoWLAN：固件支持
+        魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；USB 線上休眠後 gadget 要重連。
 - [x] 內核源碼改由 git 管理（2026-10-23）：`tools/mk-kernel-tree.sh` 從 tarball + `kernel/patches/` 建出
       `src/linux-7.3`（tag `v7.3-tarball`，分支 `sunstone`，調試放在其上的分支，現在是 `debug/panel-early-bind`）；
       `build-kernel.sh` 不再打補丁，每次從 defconfig 重建 `.config`（`EXTRA_CONFIG=` 加調試片段），把源碼 commit、
