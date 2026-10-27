@@ -58,3 +58,16 @@ against the running kernel's build tree:
     make -C src/linux-7.3 O=$PWD/out/kbuild ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
         M=$PWD/kernel/debug/ramoops-peek MO=/tmp/peek modules
     insmod ramoops-peek.ko [phys=0x... size=0x...]
+
+## `rpm-master-peek/`, `smem-sleep-peek/`, `rpm-sleep-vote/`
+
+Low-power investigation (2026-10-27, `TODO.md` under suspend), built like `ramoops-peek`:
+
+- `rpm-master-peek`: the RPM's per-master sleep statistics in RPM message RAM, live, at
+  `/sys/kernel/debug/rpm-master-peek`. **Only `count=1` (APSS, 0x45f0150) with 32-bit reads is
+  safe**: 64-bit reads of this RAM, and any read of the MPSS block at 0x45f1150, reset the SoC.
+- `smem-sleep-peek`: the subsystems' own sleep statistics in SMEM (modem 605, ADSP 606, CDSP 607,
+  ADSP island 613, APSS 631; timestamps in 19.2 MHz ticks), read-only, safe.
+- `rpm-sleep-vote`: an experiment, not a fix: sends 0 in the APSS's RPM sleep set for the bus clocks
+  no interconnect driver manages on SM6375 (and with `misc=1` for the RPM clocks that
+  clk_ignore_unused leaves at their hand-off vote); unloading sends the hand-off values back.

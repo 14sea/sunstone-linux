@@ -15,7 +15,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Display | 1080x2400 AMOLED, DSI + DSC panel driver (0008), 120 Hz and 60 Hz, backlight, power-key blanking |
 | GPU | Adreno 619 (0007), freedreno (Mesa), OpenGL 4.6 (Vulkan not tried); zap shader from the phone's vendor partition |
 | Touch, keys | FT5452 touchscreen (0002), power and volume keys |
-| Wi-Fi | WCN3988 over ath10k, the modem (MPSS) running its firmware; Xiaomi's board data from `modem_a` |
+| Wi-Fi | WCN3988 over ath10k, the modem (MPSS) running its firmware; Xiaomi's board data from `modem_a`; linux-firmware's `firmware-5.bin` with single-chan-info-per-channel (`sunstone-ath10k-fw5`: scan survey data, no chan info warnings) |
 | Bluetooth | WCN3988 on its UART, Xiaomi's firmware from `bluetooth_a`; classic and LE keyboards and mice tested |
 | Battery | SM5602 fuel gauge (0003), SC89890H charger (0004), charge limit 4.1 V for life on the charger |
 | microSD | UHS-I SDR104 (sdhc_2), card detect on the SIM tray switch; a card labelled `sdcard` (ext4) mounted at `/srv/sd` at boot and again after a tray swap |
@@ -24,10 +24,12 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Cameras | 48 MP OV48B2Q main (4000x3000 and 2000x1500: 0020, 0022) with contrast-detect autofocus on its DW9800 actuator (libcamera patch, `tools/ubuntu/add-libcamera-af.sh`; `sunstone-camera-focus fixed` holds it at about 2 m instead), 8 MP OV08D10 front, 2 MP SC202CS (monochrome depth: 0021); CAMSS for SM6375 (0018), WL2866D camera LDOs (0017); libcamera's software ISP, GNOME Snapshot (portrait and landscape); rear flash LED (KTD2691 as an LM36011: 0025, 0027) |
 | Cellular | mobile data through IPA v4.11 and ModemManager (tested with an IoT SIM); the SIM comes back by itself after the SIM/microSD tray is swapped (`sunstone-sim-watch`) |
 | Sensors | accelerometer, gyroscope, light, proximity, magnetometer and compass through the ADSP's SSC (hexagonrpcd with writes, libssc, iio-sensor-proxy); GNOME auto-rotate |
+| DSPs | ADSP (audio, sensors), CDSP (Turing) with FastRPC (nothing uses it yet); fastrpc resumes an interrupted invoke instead of sending it again (0033) |
+| Power | s2idle with RTC and power-key wake (0032, 0033), automatic suspend left off for the server; runtime PM fixes for gpucc (0034), UFS lane clocks (0035), wcd937x RX clocks (0030), q6afe clock votes (0031); the SoC does not reach XO shutdown / VDD minimization yet (`TODO.md`) |
 | Other | vibration motor, IR transmitter |
 | Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C |
 | Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, pstore (console, oops/panic records) kept across resets by resetting warm through PS_HOLD (0029), a directory per boot in `/var/lib/systemd/pstore`, QRTR HELLO fix (0010) for the modem's init stall; audio and sensors come back after an ADSP restart |
-| Not working | earpiece, voice calls, SMS (untested), fingerprint, suspend; no NFC chip in this unit; hardware RNG and crypto engine left out (see `TODO.md`) |
+| Not working | earpiece, voice calls, SMS (untested), fingerprint; no NFC chip in this unit; hardware RNG and crypto engine left out (see `TODO.md`) |
 
 | Software | |
 | --- | --- |
@@ -37,7 +39,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Media | PipeWire in 16 bit with the UCM profile; cameras through libcamera's simple pipeline and PipeWire's libcamera plugin (WirePlumber's V4L2 monitor off), buffers from the system dma-buf heap; GNOME Snapshot built with a patch that turns the preview and the pictures with the display (`tools/ubuntu/add-snapshot.sh`); libcamera 0.7.0 with contrast-detect autofocus in `/usr/local` (`tools/ubuntu/add-libcamera-af.sh`), switched to a fixed focus at about 2 m with `sunstone-camera-focus fixed` or GNOME's Camera Focus launcher |
 | Sensors | hexagonrpcd built with a write patch (`tools/ubuntu/add-hexagonrpcd.sh`), libssc and iio-sensor-proxy with SSC support (`tools/ubuntu/add-ssc.sh`) |
 
-Open items are in `TODO.md` (suspend, the 24 h soak on Ubuntu, earpiece, SMS, GNOME's
+Open items are in `TODO.md` (the SoC's low-power modes, the 24 h soak on Ubuntu, earpiece, SMS, GNOME's
 smoothness, panel brightness curve, DSI PHY clock warning, dispcc PLL latch, ...).
 
 | Milestone | State |
