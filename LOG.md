@@ -161,3 +161,4 @@
 | — | 2026-10-27 | 用户真的拔插卡托 | sunstone-sim-watch 26 s 後激活 provisioning 會話，modem 自己回到 registered；`/srv/sd` 被卸載後沒再掛 → `80-sunstone-sdcard.rules`，unbind/bind 驗證重新掛上；SD 上的 ext4 fsck 回放日誌後 clean | — |
 | — | 2026-10-27 | AF 第二版（穩定後才掃、掃中移動放棄、驗證、局部細查、拋物線、門檻）+ 固定對焦（`software_isp.focus`、`sunstone-camera-focus`） | 用户 Snapshot 第二輪：遠景（窗外，亮度 150–220）峰 416–432，2 m 峰 439；驗證失敗多是手抖和音圈回差 → 從下方接近；一個過亮無紋理畫面停在 594 → 門檻 0.001、亮度上限 210；桌面平坦畫面比值 1.22 被當成對焦 → 1.5。cam：自動約 1.6 s，無對比度停 438，固定模式 438 | — |
 | — | 2026-10-27 | 「相機對焦」圖標：`sunstone-camera-focus@.service` + polkit 規則（`/etc/polkit-1/rules.d`）+ `sunstone-camera-focus-toggle` + desktop 文件 | 以 phone 身份兩次切換（定焦 → 自動）成功、不問密碼，PipeWire 隨之重啟；phone 啟動別的單元被拒 | — |
+| — | 2026-10-27 | 用户在 Snapshot 試最後這版（自動 + 圖標切換定焦 9 次） | 用户：「現在這樣已經很好了」。9 次對焦位置和距離一致，3 次驗證重掃（手動時），平坦畫面判失敗停 438，切換服務每次成功；PipeWire 的 AF 調試日誌關掉 | — |

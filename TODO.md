@@ -1,7 +1,8 @@
 # sunstone Linux 待辦
 
-按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在（2026-10-26）：Ubuntu 上，外設見「還不能用的」
-（音頻、傳感器、蜂窩數據、攝像頭已做），長期熄屏運行見「服務器」。
+按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在（2026-10-27）：Ubuntu 上，外設見「還不能用的」
+（音頻、傳感器、蜂窩數據、攝像頭和主攝自動對焦、microSD 已做），長期熄屏運行見「服務器」（pstore、板上熱敏電阻
+2026-10-27 做完）。
 
 ## 遺留問題（M4 結束時，2026-10-22）
 
@@ -362,7 +363,7 @@
       按 v % 16 查表（0 cn、1 global、2 in、3 cn_new、4/5 moonstone_p、6 x、7 cn，其他 unknow），只有 global 帶 NFC。
       本機的值（一個只讀的臨時模塊 `qcom_smem_get(135)` 讀到）不是 global。硬件上也確認了（boot-144）：開 i2c0、GPIO6 輸出高
       （pinctrl debugfs `out high`）後整條總線掃描沒有任何應答，VEN 低時也沒有；同樣的掃描在 i2c10 上能看到沒綁驅動的 0x28、0x4e、0x66。
-- [x] 攝像頭（2026-10-26，boot-154–167；自動對焦除外，見下）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
+- [x] 攝像頭（2026-10-26，boot-154–167；自動對焦 2026-10-27，見下）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
       的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018），沒有 interconnect。
   - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
         RAW10 抓幀、libcamera simple 管線 + 軟件 ISP（1632x1224 約 29 fps，3200x2400 30 fps，緩衝區在 system dma-heap），
@@ -372,9 +373,9 @@
   - [x] 主攝 2000x1500（0022）：原廠 CamX 模組數據（`com.qti.sensormodule.*.bin`，數值在去重的數值池裡）裡 4000x3000 和
         2000x1500 不同的寄存器，時鐘照 MTK 的表；30 fps（最高 90），軟件 ISP 1920x1440 30 fps。用户：流暢多了，照片能存。
   - [x] 主攝對焦馬達：DW9800W（cci0 主機 0 的 0x0c，寄存器 0 讀出 0xf2），主線 dw9719 驅動的 `dongwoon,dw9800k`（原廠
-        CamX 模組數據的初始化相同）；電源 GPIO50（`cam_vaf`，接在 cam_vio 後面：總線上拉在 cam_vio 上）。軟件 ISP 沒有
-        自動對焦：udev（`71-sunstone-camera-focus.rules`）把位置定在 480（遠景最清晰在 464–480，350 以下鏡頭不動）。
-        用户：遠處清楚了一些。馬達只在主攝出流時通電（0023/0024：PipeWire 一直開着它的節點，原來線圈一直通電、
+        CamX 模組數據的初始化相同）；電源 GPIO50（`cam_vaf`，接在 cam_vio 後面：總線上拉在 cam_vio 上）。udev
+        （`71-sunstone-camera-focus.rules`）定起始位置：原來 480（當時以為是遠景，實際約 0.7 m），2026-10-27 起 438（約 2 m，
+        超焦距；350 以下鏡頭不動）。馬達只在主攝出流時通電（0023/0024：PipeWire 一直開着它的節點，原來線圈一直通電、
         cam_vio 常開）；DW9800 在鏡頭移動時丟掉新位置（0026：等狀態寄存器 0x05 的忙位）。
   - [x] 主攝：自動對焦（2026-10-27）：libcamera 0.7.0（和 Ubuntu 同版本）加本地補丁 `tools/ubuntu/libcamera-sunstone-af.patch`，
         `add-libcamera-af.sh` 編進 /usr/local（同 SONAME，`libdir=lib/aarch64-linux-gnu`，否則加載器先找到 Ubuntu 的；
@@ -387,10 +388,15 @@
         464–480」其實約 0.7 m。`ov48b2q.yaml`：384–1023，`fixedPosition: 438`。固定對焦（GoPro 式，約 1 m 到無窮遠）：
         `sunstone-camera-focus fixed|auto`（寫 /usr/local/etc/libcamera/configuration.yaml 的 `software_isp.focus`，重啟
         PipeWire），默認自動。udev 起始位置改 438。cam：一次掃描約 1.6 s；平坦畫面判失敗停 438；固定模式直接 438。
-        用户第二輪 Snapshot 試第二版之後的改動（回差、門檻）沒再試。GNOME 應用列表裡的「相機對焦」（Camera Focus）圖標
+        用户第三輪（最後這版，2026-10-27）：「現在這樣已經很好了」；日誌 9 次對焦（416 遠處、462–495 約 0.5–1 m、512–527
+        約 30–40 cm），3 次驗證重掃（手動時），平坦畫面判失敗停 438。定焦的清晰範圍（估算，焦距 4.8 mm、f/1.8 是假設）：
+        預覽 / 2 MP 約 1 m 到無窮遠，48 MP 按像素看約 1.3–4 m。調試日誌（PipeWire 的 `LIBCAMERA_LOG_LEVELS`）已關。GNOME 應用列表裡的「相機對焦」（Camera Focus）圖標
         切換兩種模式並發通知：`sunstone-camera-focus-toggle` → `systemctl start sunstone-camera-focus@auto|fixed.service`，
         polkit 規則只讓 phone 不用密碼啟動這兩個（用户選的；其他單元照樣要認證，已驗證）。
   - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
+  - [ ] 主攝自動對焦可選的改進（用户滿意，不急）：EEPROM 裡大概有原廠的 AF 校準（無窮遠/微距碼），可以代替手測的
+        420/438；統計每 4 幀一次（`kStatPerNumFrames`，給 AGC 的延遲），AF 想更快只能另算；libcamera 補丁可以考慮整理後發上游
+        （simple IPA 目前沒有 AF）；定焦清晰範圍可以實測（定焦模式下在 30 cm、50 cm、1 m、2 m 各停幾秒，看清晰度）。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報
         SBGGR10，軟件 ISP 出灰度畫面。用户確認方向正確、黑白。
