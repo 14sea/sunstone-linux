@@ -1,0 +1,6 @@
+[Unit]
+Description=sunstone: main camera focus mode %i (sunstone-camera-focus)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sunstone-camera-focus %i

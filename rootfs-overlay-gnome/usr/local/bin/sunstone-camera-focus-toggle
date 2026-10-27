@@ -1,0 +1,18 @@
+#!/bin/sh
+# sunstone: the desktop's Camera Focus launcher. Switches the main camera between autofocus and the
+# fixed focus at about 2 m (sunstone-camera-focus, as root through sunstone-camera-focus@.service,
+# which polkit lets the desktop user start) and says which one is on now. The switch restarts
+# PipeWire: an open Camera (Snapshot) has to be opened again.
+case $(/usr/local/sbin/sunstone-camera-focus) in
+fixed) new=auto title="Camera focus: auto / 相機對焦：自動"
+	body="Autofocus on the centre of the picture. 對焦畫面中心。" ;;
+*) new=fixed title="Camera focus: fixed / 相機對焦：定焦"
+	body="Sharp from about 1 m to infinity. 約 1 米到無窮遠清楚。" ;;
+esac
+if ! systemctl start "sunstone-camera-focus@$new.service"; then
+	title="Camera focus not changed / 相機對焦沒有切換"
+	body="sunstone-camera-focus@$new.service failed. 切換失敗。"
+fi
+gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+	--method org.freedesktop.Notifications.Notify "Camera Focus" 0 camera-app "$title" \
+	"$body Reopen Camera to use it. 重新打開相機生效。" '[]' '{}' 5000 >/dev/null

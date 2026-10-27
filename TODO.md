@@ -387,7 +387,9 @@
         464–480」其實約 0.7 m。`ov48b2q.yaml`：384–1023，`fixedPosition: 438`。固定對焦（GoPro 式，約 1 m 到無窮遠）：
         `sunstone-camera-focus fixed|auto`（寫 /usr/local/etc/libcamera/configuration.yaml 的 `software_isp.focus`，重啟
         PipeWire），默認自動。udev 起始位置改 438。cam：一次掃描約 1.6 s；平坦畫面判失敗停 438；固定模式直接 438。
-        用户第二輪 Snapshot 試第二版之後的改動（回差、門檻）沒再試。
+        用户第二輪 Snapshot 試第二版之後的改動（回差、門檻）沒再試。GNOME 應用列表裡的「相機對焦」（Camera Focus）圖標
+        切換兩種模式並發通知：`sunstone-camera-focus-toggle` → `systemctl start sunstone-camera-focus@auto|fixed.service`，
+        polkit 規則只讓 phone 不用密碼啟動這兩個（用户選的；其他單元照樣要認證，已驗證）。
   - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報

@@ -1,0 +1,8 @@
+// sunstone: the desktop user may switch the main camera's focus mode without a password: the Camera
+// Focus launcher starts sunstone-camera-focus@auto or @fixed.service. Nothing else is allowed here.
+polkit.addRule(function (action, subject) {
+	if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "phone" &&
+	    action.lookup("verb") == "start" &&
+	    /^sunstone-camera-focus@(auto|fixed)\.service$/.test(action.lookup("unit")))
+		return polkit.Result.YES;
+});

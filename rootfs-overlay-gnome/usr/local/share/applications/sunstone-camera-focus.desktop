@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Camera Focus
+Name[zh_TW]=相機對焦
+Name[zh_CN]=相机对焦
+Comment=Switch the main camera between autofocus and fixed focus (about 2 m)
+Comment[zh_TW]=主攝在自動對焦和定焦（約 2 米）之間切換
+Exec=/usr/local/bin/sunstone-camera-focus-toggle
+Icon=camera-app
+Terminal=false
+Categories=Utility;
