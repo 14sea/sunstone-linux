@@ -1,0 +1,181 @@
+ASoC: codecs: wcd937x: count the RX clock users with a DAPM supply
+
+wcd937x_rx_clk_enable() returned early when the count was already set,
+so the count never went above 1, while every RX1/RX2/RX3 power down
+called wcd937x_rx_clk_disable(). With the headphones (RX1 + RX2) the
+first power down switched the RX analog clocks and bias off under the
+second path, and the second one logged "clk already disabled". On SM4375
+(Xiaomi Redmi Note 12 5G) every PipeWire start, which opens and closes
+each UCM device once, logged about ten of them.
+
+Make the RX clocks an "RXCLK" supply widget that RX1, RX2 and RX3 depend
+on, as wcd938x does, and let DAPM do the counting. The per path digital
+clocks are still switched off in the RX power down, now before the shared
+analog clocks instead of after them for the last path, which is what
+wcd938x does too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/codecs/wcd937x.c b/sound/soc/codecs/wcd937x.c
+index 0c17f6dc2..d7aa45f13 100644
+--- a/sound/soc/codecs/wcd937x.c
++++ b/sound/soc/codecs/wcd937x.c
+@@ -107,7 +107,6 @@ struct wcd937x_priv {
+ 	struct gpio_desc *us_euro_gpio;
+ 	struct gpio_desc *reset_gpio;
+ 
+-	atomic_t rx_clk_cnt;
+ 	atomic_t ana_clk_count;
+ };
+ 
+@@ -302,41 +301,29 @@ static void wcd937x_io_init(struct regmap *regmap)
+ 	}
+ }
+ 
+-static int wcd937x_rx_clk_enable(struct snd_soc_component *component)
++static int wcd937x_codec_enable_rxclk(struct snd_soc_dapm_widget *w,
++				      struct snd_kcontrol *kcontrol,
++				      int event)
+ {
+-	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
+-
+-	if (atomic_read(&wcd937x->rx_clk_cnt))
+-		return 0;
+-
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_DIG_CLK_CTL, BIT(3), BIT(3));
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(0), BIT(0));
+-	snd_soc_component_update_bits(component, WCD937X_ANA_RX_SUPPLIES, BIT(0), BIT(0));
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX0_CTL, BIT(6), 0x00);
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX1_CTL, BIT(6), 0x00);
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX2_CTL, BIT(6), 0x00);
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(1), BIT(1));
+-
+-	atomic_inc(&wcd937x->rx_clk_cnt);
+-
+-	return 0;
+-}
+-
+-static int wcd937x_rx_clk_disable(struct snd_soc_component *component)
+-{
+-	struct wcd937x_priv *wcd937x = snd_soc_component_get_drvdata(component);
++	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+ 
+-	if (!atomic_read(&wcd937x->rx_clk_cnt)) {
+-		dev_err(component->dev, "clk already disabled\n");
+-		return 0;
++	switch (event) {
++	case SND_SOC_DAPM_PRE_PMU:
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_DIG_CLK_CTL, BIT(3), BIT(3));
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(0), BIT(0));
++		snd_soc_component_update_bits(component, WCD937X_ANA_RX_SUPPLIES, BIT(0), BIT(0));
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX0_CTL, BIT(6), 0x00);
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX1_CTL, BIT(6), 0x00);
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_RX2_CTL, BIT(6), 0x00);
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(1), BIT(1));
++		break;
++	case SND_SOC_DAPM_POST_PMD:
++		snd_soc_component_update_bits(component, WCD937X_ANA_RX_SUPPLIES, BIT(0), 0x00);
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(1), 0x00);
++		snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(0), 0x00);
++		break;
+ 	}
+ 
+-	atomic_dec(&wcd937x->rx_clk_cnt);
+-
+-	snd_soc_component_update_bits(component, WCD937X_ANA_RX_SUPPLIES, BIT(0), 0x00);
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(1), 0x00);
+-	snd_soc_component_update_bits(component, WCD937X_DIGITAL_CDC_ANA_CLK_CTL, BIT(0), 0x00);
+-
+ 	return 0;
+ }
+ 
+@@ -350,7 +337,6 @@ static int wcd937x_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
+ 
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
+-		wcd937x_rx_clk_enable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(0), BIT(0));
+@@ -425,7 +411,6 @@ static int wcd937x_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
+ 
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
+-		wcd937x_rx_clk_enable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL, BIT(1), BIT(1));
+ 		snd_soc_component_update_bits(component,
+@@ -494,7 +479,6 @@ static int wcd937x_codec_ear_dac_event(struct snd_soc_dapm_widget *w,
+ 
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
+-		wcd937x_rx_clk_enable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_HPH_GAIN_CTL,
+ 					      BIT(2), BIT(2));
+@@ -549,7 +533,6 @@ static int wcd937x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
+ 
+ 	switch (event) {
+ 	case SND_SOC_DAPM_PRE_PMU:
+-		wcd937x_rx_clk_enable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_ANA_CLK_CTL,
+ 					      BIT(2), BIT(2));
+@@ -859,7 +842,6 @@ static int wcd937x_enable_rx1(struct snd_soc_dapm_widget *w,
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+-		wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(0), 0x00);
+@@ -874,7 +856,6 @@ static int wcd937x_enable_rx2(struct snd_soc_dapm_widget *w,
+ 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+-		wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(1), 0x00);
+@@ -891,7 +872,6 @@ static int wcd937x_enable_rx3(struct snd_soc_dapm_widget *w,
+ 
+ 	if (event == SND_SOC_DAPM_POST_PMD) {
+ 		usleep_range(6000, 6010);
+-		wcd937x_rx_clk_disable(component);
+ 		snd_soc_component_update_bits(component,
+ 					      WCD937X_DIGITAL_CDC_DIG_CLK_CTL,
+ 					      BIT(2), 0x00);
+@@ -2226,6 +2206,9 @@ static const struct snd_soc_dapm_widget wcd937x_dapm_widgets[] = {
+ 
+ 	SND_SOC_DAPM_SUPPLY("VDD_BUCK", SND_SOC_NOPM, 0, 0, NULL, 0),
+ 	SND_SOC_DAPM_SUPPLY_S("CLS_H_PORT", 1, SND_SOC_NOPM, 0, 0, NULL, 0),
++	SND_SOC_DAPM_SUPPLY("RXCLK", SND_SOC_NOPM, 0, 0,
++			    wcd937x_codec_enable_rxclk,
++			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+ 
+ 	/* RX widgets */
+ 	SND_SOC_DAPM_PGA_E("EAR PGA", WCD937X_ANA_EAR, 7, 0, NULL, 0,
+@@ -2397,6 +2380,7 @@ static const struct snd_soc_dapm_route wcd937x_audio_map[] = {
+ 	{ "IN1_HPHL", NULL, "VDD_BUCK" },
+ 	{ "IN1_HPHL", NULL, "CLS_H_PORT" },
+ 	{ "RX1", NULL, "IN1_HPHL" },
++	{ "RX1", NULL, "RXCLK" },
+ 	{ "RDAC1", NULL, "RX1" },
+ 	{ "HPHL_RDAC", "Switch", "RDAC1" },
+ 	{ "HPHL PGA", NULL, "HPHL_RDAC" },
+@@ -2405,6 +2389,7 @@ static const struct snd_soc_dapm_route wcd937x_audio_map[] = {
+ 	{ "IN2_HPHR", NULL, "VDD_BUCK" },
+ 	{ "IN2_HPHR", NULL, "CLS_H_PORT" },
+ 	{ "RX2", NULL, "IN2_HPHR" },
++	{ "RX2", NULL, "RXCLK" },
+ 	{ "RDAC2", NULL, "RX2" },
+ 	{ "HPHR_RDAC", "Switch", "RDAC2" },
+ 	{ "HPHR PGA", NULL, "HPHR_RDAC" },
+@@ -2413,6 +2398,7 @@ static const struct snd_soc_dapm_route wcd937x_audio_map[] = {
+ 	{ "IN3_AUX", NULL, "VDD_BUCK" },
+ 	{ "IN3_AUX", NULL, "CLS_H_PORT" },
+ 	{ "RX3", NULL, "IN3_AUX" },
++	{ "RX3", NULL, "RXCLK" },
+ 	{ "RDAC4", NULL, "RX3" },
+ 	{ "AUX_RDAC", "Switch", "RDAC4" },
+ 	{ "AUX PGA", NULL, "AUX_RDAC" },

@@ -1,0 +1,69 @@
+ASoC: qcom: q6afe: keep the client handle of LPASS core hw votes
+
+q6afe_vote_lpass_core_hw() never wrote *client_handle, so every unvote
+went out with handle 0 and the DSP refused it: on SM4375 (Xiaomi Redmi
+Note 12 5G) each release of the LPASS_HW_MACRO/DCODEC clocks logged
+"cmd = 0x100f6 returned error = 0x1" plus "Unknown cmd 0x100f6", and the
+votes were never dropped. The vote response carries the handle as its
+payload, which the callback read as a result (its status field past the
+end of the 4-byte payload).
+
+Keep the handle from the response and return it to the caller. Accept the
+devote result in the basic response, and end the wait with the error when
+a vote fails, which the DSP answers with a basic response and no handle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/sound/soc/qcom/qdsp6/q6afe.c b/sound/soc/qcom/qdsp6/q6afe.c
+index f0ff1350e..174ac7c89 100644
+--- a/sound/soc/qcom/qdsp6/q6afe.c
++++ b/sound/soc/qcom/qdsp6/q6afe.c
+@@ -396,6 +396,8 @@ struct q6afe {
+ 	wait_queue_head_t wait;
+ 	struct list_head port_list;
+ 	spinlock_t port_list_lock;
++	/* client handle from the last LPASS core hw vote response */
++	uint32_t lpass_hw_handle;
+ };
+ 
+ struct afe_port_cmd_device_start {
+@@ -1036,6 +1038,16 @@ static int q6afe_callback(struct apr_device *adev, const struct apr_resp_pkt *da
+ 				wake_up(&afe->wait);
+ 			}
+ 			break;
++		case AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
++			/* a failed vote gets no handle response */
++			if (res->status) {
++				afe->result.opcode = AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST;
++				afe->result.status = res->status;
++				wake_up(&afe->wait);
++			}
++			break;
++		case AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST:
++			break;
+ 		default:
+ 			dev_err(afe->dev, "Unknown cmd 0x%x\n",	res->opcode);
+ 			break;
+@@ -1043,8 +1055,11 @@ static int q6afe_callback(struct apr_device *adev, const struct apr_resp_pkt *da
+ 	}
+ 		break;
+ 	case AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
++		/* the payload is the client handle, not a result */
++		if (data->payload_size >= sizeof(uint32_t))
++			afe->lpass_hw_handle = *(uint32_t *)data->payload;
+ 		afe->result.opcode = hdr->opcode;
+-		afe->result.status = res->status;
++		afe->result.status = 0;
+ 		wake_up(&afe->wait);
+ 		break;
+ 	default:
+@@ -1955,6 +1970,9 @@ int q6afe_vote_lpass_core_hw(struct device *dev, uint32_t hw_block_id,
+ 			       AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST);
+ 	if (ret)
+ 		dev_err(afe->dev, "AFE failed to vote (%d)\n", hw_block_id);
++	else
++		/* votes come from clk prepare, serialised by the clk core */
++		*client_handle = afe->lpass_hw_handle;
+ 
+ 	return ret;
+ }

@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Copy an ath10k firmware-N.bin with extra feature bits set.
+
+  sunstone-ath10k-fw5 IN-firmware-5.bin OUT-firmware-5.bin FEATURE-BIT...
+
+The WCN3988's firmware (WLAN.HL.3.3.2) sends one chan info event per scanned channel and a
+freq 0 "complete" event after each band. linux-firmware's generic WCN3990 firmware-5.bin does not
+declare that (ATH10K_FW_FEATURE_SINGLE_CHAN_INFO_PER_CHANNEL, bit 20), so ath10k pairs the events,
+never fills the survey and warns "chan info: invalid frequency 0 (idx 41 out of bounds)" on every
+scan. Its qcm2290/qrb4210 copies (WLAN.HL.3.3.7) set the bit; sunstone-fw-install puts a copy of
+the generic file with bit 20 into /lib/firmware/updates/ath10k/WCN3990/hw1.0/.
+
+Format (ath10k hw.h): "QCA-ATH10K\\0" padded to 4 bytes, then 4-byte aligned IEs
+{u32 id, u32 len, data}; IE 2 = features, a little-endian bitmap (bit n = byte n / 8, bit n % 8).
+"""
+import struct
+import sys
+
+MAGIC = b'QCA-ATH10K\0'
+IE_FEATURES = 2
+
+
+def main():
+    if len(sys.argv) < 4:
+        sys.exit(__doc__)
+    src, dst, bits = sys.argv[1], sys.argv[2], [int(b) for b in sys.argv[3:]]
+    blob = open(src, 'rb').read()
+    if not blob.startswith(MAGIC):
+        sys.exit(f'{src}: not an ath10k firmware file')
+    p = len(MAGIC) + (-len(MAGIC) % 4)
+    out = bytearray(blob[:p])
+    found = False
+    while p + 8 <= len(blob):
+        ie_id, ie_len = struct.unpack_from('<II', blob, p)
+        data = bytearray(blob[p + 8:p + 8 + ie_len])
+        p += 8 + ie_len + (-ie_len % 4)
+        if ie_id == IE_FEATURES:
+            found = True
+            for b in bits:
+                if len(data) <= b // 8:
+                    data.extend(b'\0' * (b // 8 + 1 - len(data)))
+                data[b // 8] |= 1 << (b % 8)
+        out += struct.pack('<II', ie_id, len(data)) + data + b'\0' * (-len(data) % 4)
+    if not found:
+        sys.exit(f'{src}: no features IE')
+    open(dst, 'wb').write(out)
+
+
+if __name__ == '__main__':
+    main()

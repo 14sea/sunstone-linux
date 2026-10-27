@@ -470,8 +470,32 @@
       `qcom,trng` 註冊成 hwrng，`qcom,prng`/`prng-ee` 只綁定、什麼都不做；同地址的 agatti 在主線是 prng-ee，沒有資料說 holi
       的是 TRNG，不能硬寫成 trng 給它記滿熵。內核不缺熵（沒有硬件 RNG 時 `crng init done` 在 4.1 s），CPU 有 AES/SHA 指令，
       加密引擎（qcrypto）也就不需要。
-- [ ] 日誌刷屏：`ath10k_snoc: chan info: invalid frequency 0 (idx 41 out of bounds)`（18 h 482 次），
-      `wcd937x_codec: clk already disabled`（12 次，大概是音頻流開關時）；2026-10-27 發現，沒查。
+- [ ] CDSP（Turing，2026-10-27 對照原廠 live DT 發現）：主線 sm6375.dtsi 有 `remoteproc_cdsp`（`qcom,sm6375-cdsp-pas`，
+      0xb300000），板級 DTS 沒打開；手機上只有 `cdspr.jsn`，沒有 `cdsp.mdt`（要從 vendor_a 的 firmware 拷）。現在只跑 modem、adsp。
+- [ ] Venus 視頻編解碼（同上發現）：原廠 `qcom,venus@5ab0000`（pil-tz-generic），完全沒做，沒有硬件編解碼。主線 venus 有
+      `qcom,qcm2290-venus`（AR50 Lite），holi 的是不是同一代沒查；對服務器用處不大。
+- [ ] 電荷泵快充（同上發現）：原廠 i2c10（我們的 i2c-2）上有 `lionsemi,ln8000@51` 和 `sc,sc8551-standalone@66` 兩個候選，
+      大概只焊一顆；都沒建設備。要先開 PD（見 OTG 剩下的）才有意義；永久接電的服務器不需要。
+- [ ] QCE 硬件加密（同上發現）：原廠 `qcom,qcrypto@1b20000`，`/proc/crypto` 沒有 qce；CPU 有 ARMv8 加密指令，影響很小。
+- [ ] CPU→DDR 帶寬調節（同上發現）：原廠有 `qcom,bimc-bwmon4`@4520300 和 memlat/devfreq-icc；我們的 devfreq 只有
+      ufshc、gpu，CPU 的 DDR 投票靠 cpufreq 的 OPP（有沒有 interconnect 投票沒查）。只影響功耗和內存密集的性能。
+- [x] **日誌刷屏**（2026-10-27 修好，boot-179，內核 `g12b956698469`）：三條都是真問題，不是只把日誌關掉。
+      - `ath10k_snoc: chan info: invalid frequency 0 (idx 41 out of bounds)`（18 h 482 次，每次掃描兩條）：這個 WLAN 固件
+        （HL.3.3.2）每個信道只發一條 chan info，每個頻段掃完再發一條 freq 0 的完成標記；linux-firmware 的通用 WCN3990
+        `firmware-5.bin` 沒聲明 `single-chan-info-per-channel`（bit 20），ath10k 按成對處理：完成標記先查頻率就報警，
+        survey 從來沒填過（`iw survey dump` 只有頻率）。qcm2290/qrb4210 那兩份（HL.3.3.7）有 bit 20。`sunstone-ath10k-fw5`
+        （sunstone-fw-install 調用）把通用文件加上 bit 20 放到 `/lib/firmware/updates/ath10k/WCN3990/hw1.0/`。之後掃描不再
+        報警，survey 有噪聲（−96 dBm）、信道活動/忙碌時間。
+      - `wcd937x_codec: clk already disabled`（每次 PipeWire 啟動約 10 條，WirePlumber 把各 UCM 設備開關一遍）：
+        `wcd937x_rx_clk_enable()` 計數不為 0 時直接返回不加計數，耳機（RX1 + RX2）時第一條通路掉電就把共用的 RX 模擬時鐘和
+        偏置關了。本地補丁 0030：照 wcd938x 做成 DAPM supply `RXCLK`，由 DAPM 計數。
+      - `qcom-q6afe: cmd = 0x100f6 returned error = 0x1` + `Unknown cmd 0x100f6`（每次流結束約 4 s 後）：
+        `q6afe_vote_lpass_core_hw()` 從來沒寫回 client handle（回應的 payload 就是 handle，回調把它當結果讀，status 讀到
+        payload 外面），解除投票都帶 0，ADSP 拒絕，LPASS_HW_MACRO/DCODEC 的投票一直沒放。本地補丁 0031。之後空閒時兩個
+        投票計數回到 0、codec 和 SoundWire 都 runtime suspend；揚聲器三聲 −36 dBFS（麥克風錄到約 −35 dBFS），用户聽到、無爆音。
+      還剩的開機一次性告警（不是刷屏）：DSI PLL / `dsi0_phy_pll_out_*` 的 4 個 WARN（見 M6 遺留）、`sm6375-tlmm: invalid
+      group "gpio4"/"gpio5" for function "qup10"`、SoundWire `din-ports (N) mismatch`、`sia8159: trimming data fails its CRC`
+      （偶發，boot-178 也有一次，驅動寫默認值）。
 - [x] RTC 偏移：timesyncd 經 Wi-Fi 對時，`rtc-offset-save.path` 在對時後保存偏移（M5）。
 - [x] pacman 鏡像站換成就近的（現在重定向到美國，約 1.9 MB/s）；不再需要測試主機的 SOCKS 隧道。（2026-10-25 關閉：只關 Arch，Arch 已不在手機上，備份可以刷回）。
 - [x] 內核模塊：現在所有驅動都編進內核，rootfs 裡沒有 `/lib/modules`；以後要裝模塊（`modules_install` + 推送）。

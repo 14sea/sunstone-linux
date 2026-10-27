@@ -6,6 +6,8 @@
 #  - the WLAN board data: ath10k's board-2.bin plus an entry for the DT's calibration variant
 #    (xiaomi_sunstone) made from bdwlan.$WLAN_BDF (default sung, Xiaomi's data for the markets
 #    outside China; sunc = bdwlan.bin is the Chinese one) -> /lib/firmware/updates/ath10k/...
+#  - ath10k's firmware-5.bin with the feature bit this WLAN firmware needs (sunstone-ath10k-fw5)
+#    -> /lib/firmware/updates/ath10k/...
 #  - vendor_a (EROFS inside super, mounted read-only through a read-only loop device at the offset
 #    sunstone-lpmap finds): the GPU zap shader a615_zap.* and the IPA's GSI firmware ipa_fws.*
 #    (firmware/) -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
@@ -27,7 +29,7 @@ SNS=/usr/share/qcom/sm4375/Xiaomi/sunstone
 MNT=$(mktemp -d) VND=$(mktemp -d) EXT=$(mktemp -d) LOOP= LOOP2=
 # set +e: umount fails for what is no longer mounted, and with -e that would end the trap there
 trap 'set +e; umount "$MNT" "$VND" "$EXT" 2>/dev/null; [ -n "$LOOP" ] && losetup -d "$LOOP"; [ -n "$LOOP2" ] && losetup -d "$LOOP2";
-	rmdir "$MNT" "$VND" "$EXT"; rm -f "$MNT.board-2.bin"' EXIT
+	rmdir "$MNT" "$VND" "$EXT"; rm -f "$MNT.board-2.bin" "$MNT.firmware-5.bin"' EXIT
 
 # an ext4 partition, read-only down to the block device: ro_ext4 PARTLABEL
 ro_ext4() {
@@ -98,6 +100,13 @@ if [ ! -e $B2 ]; then
 fi
 sunstone-mkboard2 $B2 "$FW/bdwlan.${WLAN_BDF:-sung}" \
 	bus=snoc,qmi-board-id=ff,qmi-chip-id=150,variant=xiaomi_sunstone /lib/firmware/updates/$BD/board-2.bin
+# linux-firmware's firmware-5.bin with single-chan-info-per-channel (bit 20), as this firmware reports
+F5=/lib/firmware/$BD/firmware-5.bin
+if [ ! -e $F5 ]; then
+	if [ -e $F5.zst ]; then zstd -dqc $F5.zst > "$MNT.firmware-5.bin"; else xz -dc $F5.xz > "$MNT.firmware-5.bin"; fi
+	F5=$MNT.firmware-5.bin
+fi
+sunstone-ath10k-fw5 $F5 /lib/firmware/updates/$BD/firmware-5.bin 20
 
 mkdir -p "$EFS"
 for p in modemst1 modemst2 fsg fsc; do
