@@ -121,8 +121,7 @@
         （`kernel/debug/smem-sleep-peek`）：APSS、ADSP、CDSP 都在睡，**modem 1731 s 裏只睡了 244 s**，是現在的阻塞者
         （WLAN 固件在 modem Q6 上）。**modem 分級實驗（boot-184，SMEM 統計，USB 插着也能看）**：Wi-Fi 省電關時
         modem 每 10 s 睡 0 s；省電開約 9 s（每秒醒約 3.5 次，聽 beacon）；Wi-Fi 關約 9.3 s；再加 modem 低功耗 10 s。
-        即 **Wi-Fi 省電關 = modem 一直醒着**（用户之前定的「只有藍牙連着時才開省電」，為了 DSCP EF 大包/ssh KEX 問題，
-        要用户重新權衡）。但 USB 斷開 + Wi-Fi 省電開（modem 90% 在睡、APSS/ADSP/CDSP 都在睡）90 s，vlow/vmin 仍 0；
+        即 **Wi-Fi 省電關 = modem 一直醒着**（用户之前定的「只有藍牙連着時才開省電」；2026-10-27 用户看過這個結果，決定**保持現狀**，可達性優先）。但 USB 斷開 + Wi-Fi 省電開（modem 90% 在睡、APSS/ADSP/CDSP 都在睡）90 s，vlow/vmin 仍 0；
         再給 BIMC/CNOC/SNOC/MMNRT/MMRT/QUP/SNOC_PERIPH/SNOC_LPASS 和 QDSS/BIMC_FREQ_LOG/CE1/HWKM/PKA 的 APSS 睡眠集合投 0
         （`kernel/debug/rpm-sleep-vote misc=1`）也仍 0。RPM 的 APSS master stats（`rpm-master-peek count=1`）`xo_count`
         一直 0，大概是「整片 XO 關過幾次」而不是 APSS 自己的投票，不能據此定位。APSS 每秒醒約 20 次（function-call IPI
