@@ -491,15 +491,17 @@
 				    "cx_mem",
 				    "cx_dbgc";
 
-			/* no (real) GMU: the GPU driver handles the clocks itself */
+			/*
+			 * no (real) GMU: the GPU driver handles the clocks itself. Not GPU_CC_AHB_CLK ("iface"):
+			 * gpucc keeps it on in hardware (local patch 0034), out of the clock framework, whose
+			 * prepare count held gpucc runtime-active and with it a VDDGX LOW_SVS vote forever
+			 */
 			clocks = <&gpucc GPU_CC_GX_GFX3D_CLK>,
-				 <&gpucc GPU_CC_AHB_CLK>,
 				 <&gcc GCC_BIMC_GPU_AXI_CLK>,
 				 <&gcc GCC_GPU_MEMNOC_GFX_CLK>,
 				 <&gpucc GPU_CC_CX_GMU_CLK>,
 				 <&gpucc GPU_CC_CXO_CLK>;
 			clock-names = "core",
-				      "iface",
 				      "mem_iface",
 				      "alt_mem_iface",
 				      "gmu",

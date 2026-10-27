@@ -112,6 +112,16 @@
       - 驗證（boot-181）：pm_test freezer ×4、devices、platform；真 s2idle：RTC 30 s、連續兩次 20 s、電源鍵（約 16 s）喚醒，
         suspend_stats 10 次成功、0 失敗；恢復後 USB、Wi-Fi（重連）、modem、傳感器正常。設備掛起 270 ms、恢復 375 ms，
         最慢 wiphy（約 220–290 ms）。`rtcwake -m freeze -s N`（RTC 不是 UTC 牆鐘，rtcwake 打印 1972 年，無害）。
+      - **vmin/vlow 為 0 的調查（2026-10-27 晚，boot-183/184，未完）**：已修 APSS 側三個阻塞者：gpucc 的兩個
+        CLK_IS_CRITICAL 時鐘讓 gpucc 永遠 runtime active、VDDGX/MX 卡在 LOW_SVS（本地補丁 0034，DTS 去掉 GPU 的 iface）；
+        文本模式沒人打開 GPU，runtime PM 不啟用（`sunstone-gpu-load.service`）；ufs-qcom 每次 runtime resume 重複
+        enable 全部 UFS 時鐘（含 ref_clk → XO）而只關一次（本地補丁 0035）。之後空閒時 cx/mx/gx 全 off，`bi_tcxo` 只剩
+        USB（gadget 連着就必須開；dwc3 默認 `power/control=on`，拔線也不掛起，設 auto 後拔線 XO 計數 0）。總線睡眠集合投 0
+        （`kernel/debug/rpm-sleep-vote`）、Wi-Fi 省電、卸 SD、停 CDSP、modem 低功耗都試過，仍為 0。SMEM 子系統統計
+        （`kernel/debug/smem-sleep-peek`）：APSS、ADSP、CDSP 都在睡，**modem 1731 s 裏只睡了 244 s**，是現在的阻塞者
+        （WLAN 固件在 modem Q6 上；下一步：Wi-Fi 省電開 + modem 低功耗同時、或關 Wi-Fi 看 modem 計數）。注意：讀 RPM
+        msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。sm6375 沒有主線
+        interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX。
       - 剩下：**RPM vmin/vlow 計數一直是 0**（空閒和 s2idle 都是），SoC 從沒進 XO 關閉/最低電壓，vlow 的 Client Votes
         0x7030703，要查是誰的投票（APSS 的 RPM 時鐘、interconnect、modem/ADSP/WLAN）；Wi-Fi 喚醒（WoWLAN：固件支持
         魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；USB 線上休眠後 gadget 要重連（插着線休眠時 `dwc3-qcom: port-1 HS-PHY not in L2`）。

@@ -1,0 +1,15 @@
+[Unit]
+Description=sunstone: load the GPU once so that it can runtime-suspend
+# msm enables the GPU's runtime PM only when the GPU is first loaded, at the first open of the DRM
+# device. Until then genpd counts it as powered and keeps VDDGX (and with it MX) up, which keeps the
+# SoC out of VDD minimization; a text-mode server never opens it. Its firmware is on the root.
+After=local-fs.target
+ConditionPathExists=/dev/dri/renderD128
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'exec 3<>/dev/dri/renderD128'
+
+[Install]
+WantedBy=multi-user.target

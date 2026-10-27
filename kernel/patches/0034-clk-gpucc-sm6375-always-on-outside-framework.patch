@@ -1,0 +1,86 @@
+clk: qcom: gpucc-sm6375: keep the AHB and GX CXO clocks on outside the framework
+
+gpucc_ahb_clk and gpucc_gx_cxo_clk were CLK_IS_CRITICAL, so the clock
+core kept both prepared, and with them two runtime PM references on
+gpucc for good. On SM4375 (Xiaomi Redmi Note 12 5G) gpucc thus never
+runtime-suspended and its required-opps vote kept VDDGX, and MX above
+it, at LOW_SVS: the RPM never got to VDD minimization.
+
+Enable both branches at probe and leave them out of the clock table, as
+newer gpucc drivers (sc7280, sm4450) do with their always-on clocks.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/clk/qcom/gpucc-sm6375.c b/drivers/clk/qcom/gpucc-sm6375.c
+index eebbc6de2..94195d541 100644
+--- a/drivers/clk/qcom/gpucc-sm6375.c
++++ b/drivers/clk/qcom/gpucc-sm6375.c
+@@ -182,20 +182,6 @@ static struct clk_rcg2 gpucc_gx_gfx3d_clk_src = {
+ 	},
+ };
+ 
+-static struct clk_branch gpucc_ahb_clk = {
+-	.halt_reg = 0x1078,
+-	.halt_check = BRANCH_HALT_DELAY,
+-	.clkr = {
+-		.enable_reg = 0x1078,
+-		.enable_mask = BIT(0),
+-		.hw.init = &(struct clk_init_data){
+-			.name = "gpucc_ahb_clk",
+-			.flags = CLK_IS_CRITICAL,
+-			.ops = &clk_branch2_ops,
+-		},
+-	},
+-};
+-
+ static struct clk_branch gpucc_cx_gfx3d_clk = {
+ 	.halt_reg = 0x10a4,
+ 	.halt_check = BRANCH_HALT_DELAY,
+@@ -293,20 +279,6 @@ static struct clk_branch gpucc_cxo_clk = {
+ 	},
+ };
+ 
+-static struct clk_branch gpucc_gx_cxo_clk = {
+-	.halt_reg = 0x1060,
+-	.halt_check = BRANCH_HALT_DELAY,
+-	.clkr = {
+-		.enable_reg = 0x1060,
+-		.enable_mask = BIT(0),
+-		.hw.init = &(struct clk_init_data){
+-			.name = "gpucc_gx_cxo_clk",
+-			.flags = CLK_IS_CRITICAL,
+-			.ops = &clk_branch2_ops,
+-		},
+-	},
+-};
+-
+ static struct clk_branch gpucc_gx_gfx3d_clk = {
+ 	.halt_reg = 0x1054,
+ 	.halt_check = BRANCH_HALT_DELAY,
+@@ -380,7 +352,6 @@ static struct gdsc gpu_gx_gdsc = {
+ };
+ 
+ static struct clk_regmap *gpucc_sm6375_clocks[] = {
+-	[GPU_CC_AHB_CLK] = &gpucc_ahb_clk.clkr,
+ 	[GPU_CC_CX_GFX3D_CLK] = &gpucc_cx_gfx3d_clk.clkr,
+ 	[GPU_CC_CX_GFX3D_SLV_CLK] = &gpucc_cx_gfx3d_slv_clk.clkr,
+ 	[GPU_CC_CX_GMU_CLK] = &gpucc_cx_gmu_clk.clkr,
+@@ -388,7 +359,6 @@ static struct clk_regmap *gpucc_sm6375_clocks[] = {
+ 	[GPU_CC_CXO_AON_CLK] = &gpucc_cxo_aon_clk.clkr,
+ 	[GPU_CC_CXO_CLK] = &gpucc_cxo_clk.clkr,
+ 	[GPU_CC_GMU_CLK_SRC] = &gpucc_gmu_clk_src.clkr,
+-	[GPU_CC_GX_CXO_CLK] = &gpucc_gx_cxo_clk.clkr,
+ 	[GPU_CC_GX_GFX3D_CLK] = &gpucc_gx_gfx3d_clk.clkr,
+ 	[GPU_CC_GX_GFX3D_CLK_SRC] = &gpucc_gx_gfx3d_clk_src.clkr,
+ 	[GPU_CC_GX_GMU_CLK] = &gpucc_gx_gmu_clk.clkr,
+@@ -454,6 +424,10 @@ static int gpucc_sm6375_probe(struct platform_device *pdev)
+ 	clk_lucid_pll_configure(&gpucc_pll0, regmap, &gpucc_pll0_config);
+ 	clk_lucid_pll_configure(&gpucc_pll1, regmap, &gpucc_pll1_config);
+ 
++	/* Keep some clocks always-on */
++	qcom_branch_set_clk_en(regmap, 0x1078); /* GPU_CC_AHB_CLK */
++	qcom_branch_set_clk_en(regmap, 0x1060); /* GPU_CC_GX_CXO_CLK */
++
+ 	ret = qcom_cc_really_probe(&pdev->dev, &gpucc_sm6375_desc, regmap);
+ 	pm_runtime_put(&pdev->dev);
+ 

@@ -1,0 +1,35 @@
+scsi: ufs: qcom: do not enable the lane clocks twice
+
+ufs_qcom_disable_lane_clks() does nothing when the lane clocks are off,
+but ufs_qcom_enable_lane_clks() enabled them again when they were on. A
+runtime resume calls it twice, from ufshcd_setup_clocks() (the link is
+in hibern8) and from ufs_qcom_resume(), while a suspend switches them
+off once, so every runtime suspend/resume cycle left one more enable on
+each clock of host->clks, which devm_clk_bulk_get_all() fills with all
+the UFS clocks, ref_clk among them. On SM4375 (Xiaomi Redmi Note 12 5G)
+the counts climbed with the disk's idle cycles and the XO stayed voted
+for in the RPM's sleep set: no XO shutdown, no VDD minimization.
+
+Return early when the lane clocks are already on, as the disable side
+does.
+
+"scsi: ufs: ufs-qcom: Enable only lane clocks in lane clock APIs"
+(Nitin Rawat, 2026-07) keeps the shared clocks out of these calls, which
+stops their leak, but not that of the lane clocks themselves.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+index 954be9343..42eb6efd4 100644
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -356,6 +356,9 @@ static int ufs_qcom_enable_lane_clks(struct ufs_qcom_host *host)
+ {
+ 	int err;
+ 
++	if (host->is_lane_clks_enabled)
++		return 0;
++
+ 	err = clk_bulk_prepare_enable(host->num_clks, host->clks);
+ 	if (err)
+ 		return err;
