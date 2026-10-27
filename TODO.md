@@ -419,9 +419,13 @@
         預覽 / 2 MP 約 1 m 到無窮遠，48 MP 按像素看約 1.3–4 m。調試日誌（PipeWire 的 `LIBCAMERA_LOG_LEVELS`）已關。GNOME 應用列表裡的「相機對焦」（Camera Focus）圖標
         切換兩種模式並發通知：`sunstone-camera-focus-toggle` → `systemctl start sunstone-camera-focus@auto|fixed.service`，
         polkit 規則只讓 phone 不用密碼啟動這兩個（用户選的；其他單元照樣要認證，已驗證）。
-  - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
+  - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。**2026-10-27（boot-192）**：EEPROM（GT24P64E，8 KiB）經 at24 可讀
+        （`/sys/bus/i2c/devices/3-0051/eeprom`），`sunstone-cam-otp` 解出模塊信息和鏡頭陰影網格（17×13×4，中心 1023，
+        四角約 25%，見 LOG boot-192）；AWB 和 AF 的位置是推測。還用不上：libcamera 0.7 的軟件 ISP 沒有鏡頭陰影校正，
+        OPE 也沒有（v5 只有白平衡/去馬賽克/色度/CCM）。要用的話：給軟件 ISP 加 LSC（按這張網格插值出每像素增益，
+        1023/值），或等 libcamera 的 GPU ISP；AWB 的模塊差異對灰世界算法影響不大。
   - [ ] 主攝自動對焦可選的改進（用户滿意，不急）：EEPROM 裡大概有原廠的 AF 校準（無窮遠/微距碼），可以代替手測的
-        420/438；統計每 4 幀一次（`kStatPerNumFrames`，給 AGC 的延遲），AF 想更快只能另算；libcamera 補丁可以考慮整理後發上游
+        420/438（2026-10-27 讀出的候選：0x50 = 411，0x4b = 607，0x4d = 560，沒有證實，沒改 AF）；統計每 4 幀一次（`kStatPerNumFrames`，給 AGC 的延遲），AF 想更快只能另算；libcamera 補丁可以考慮整理後發上游
         （simple IPA 目前沒有 AF）；定焦清晰範圍可以實測（定焦模式下在 30 cm、50 cm、1 m、2 m 各停幾秒，看清晰度）。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報

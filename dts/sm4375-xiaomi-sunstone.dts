@@ -1849,6 +1849,17 @@
 					};
 				};
 			};
+
+			/*
+			 * the main camera module's calibration EEPROM, a Giantec GT24P64E (8 KiB, stock
+			 * CamX data "ov48b2q_gt24p64e"), on cam_vio like the bus pull-ups; read-only
+			 */
+			main_cam_eeprom: eeprom@51 {
+				compatible = "giantec,gt24p64e", "atmel,24c64";
+				reg = <0x51>;
+				vcc-supply = <&cam_vio>;
+				read-only;
+			};
 		};
 
 		cci0_i2c1: i2c-bus@1 {

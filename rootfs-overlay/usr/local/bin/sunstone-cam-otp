@@ -1,0 +1,51 @@
+#!/usr/bin/python3 -I
+# sunstone: decode the main camera module's calibration EEPROM (GT24P64E on CCI0 0x51, at24, read-only).
+# The layout is Xiaomi's, not documented; what is known comes from the stock CamX module data
+# (com.qti.sensormodule.m17_oflim_ov48b2q_wide.bin, customInfo) and from the data itself:
+#   0x00 flag, 0x01 vendor (7 = OFilm), 0x02-0x04 date (year-2000, month, day), 0x08 lens id,
+#   0x0c sensor id, 0x10 fuse id (16 bytes), 0x1f92 module serial (14 bytes, ASCII, not printed
+#   unless --serial), 0x12d6 dual camera data (2048 bytes);
+#   0x65 lens shading: 17 x 13 points, R/Gr/Gb/B interleaved, big-endian 10 bit, 1023 = centre
+#   (the measured shading, so the gain is 1023 / value).
+# Guessed, not confirmed: AWB at 0x2d (big-endian 16 bit, 727 / 1000 / 430: R, G, B?) and the
+# AF codes at 0x4b (607), 0x4d (560), 0x50 (411: infinity? the hand-measured one is about 420).
+#   sunstone-cam-otp [--json] [--serial] [FILE]
+import json
+import struct
+import sys
+
+DEV = '/sys/bus/i2c/devices/3-0051/eeprom'
+args = [a for a in sys.argv[1:] if not a.startswith('--')]
+data = open(args[0] if args else DEV, 'rb').read()
+if len(data) < 0x2000:
+    sys.exit(f'{len(data)} bytes, expected 8192')
+
+be16 = lambda o: struct.unpack_from('>H', data, o)[0]
+W, H = 17, 13
+pts = struct.unpack_from(f'>{W * H * 4}H', data, 0x65)
+lsc = {ch: [[pts[(r * W + c) * 4 + i] for c in range(W)] for r in range(H)]
+       for i, ch in enumerate(('r', 'gr', 'gb', 'b'))}
+
+out = {
+    'valid': data[0] == 1,
+    'vendor': {7: 'OFilm'}.get(data[1], data[1]),
+    'date': f'20{data[2]:02d}-{data[3]:02d}-{data[4]:02d}',
+    'lens_id': hex(data[8]),
+    'sensor_id': hex(data[0x0c]),
+    'fuse_id': data[0x10:0x20].hex(),
+    'lsc_grid': f'{W}x{H}',
+    'lsc_corner_pct': {ch: round(100 * sum(g[r][c] for r, c in ((0, 0), (0, W - 1), (H - 1, 0),
+                                                                    (H - 1, W - 1))) / 4 / 1023)
+                       for ch, g in lsc.items()},
+    'awb_guess': [be16(0x2d), be16(0x2f), be16(0x31)],
+    'af_guess': {'0x4b': be16(0x4b), '0x4d': be16(0x4d), '0x50': be16(0x50)},
+}
+if '--serial' in sys.argv:
+    out['serial'] = data[0x1f92:0x1f92 + 14].decode('ascii', 'replace')
+
+if '--json' in sys.argv:
+    out['lsc'] = lsc
+    print(json.dumps(out, indent=1))
+else:
+    for k, v in out.items():
+        print(f'{k}: {v}')
