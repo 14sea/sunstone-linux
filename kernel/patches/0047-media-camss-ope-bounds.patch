@@ -1,0 +1,49 @@
+media: qcom: camss: OPE: bound the stride and re-check param block sizes
+
+Two checks on what userspace hands the OPE:
+
+- A bytesperline larger than needed was taken as is, so a huge value
+  made bytesperline * height overflow the 32-bit sizeimage, and the
+  buffers could be smaller than what the engines fetch and write.
+  Bound it to 4 bytes per pixel of the widest frame.
+
+- The params buffer is parsed while it is still mapped to userspace,
+  after v4l2_isp_params_validate_buffer() checked it. The parse loop
+  re-checked each block size against what is left, but not against the
+  size of its type, so a block shrunk in between let the handler copy
+  past it. Check that too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/platform/qcom/camss/ope/core.c b/drivers/media/platform/qcom/camss/ope/core.c
+index 0345ba25d..1775555dd 100644
+--- a/drivers/media/platform/qcom/camss/ope/core.c
++++ b/drivers/media/platform/qcom/camss/ope/core.c
+@@ -1912,8 +1912,9 @@ static const struct ope_fmt *ope_fmt_try(struct ope_dev *ope, bool is_output,
+ 	else
+ 		bytesperline = pix->width * fmt->depth / 8;
+ 
++	/* a larger stride from userspace is kept, bounded so sizeimage cannot overflow */
+ 	if (pix->plane_fmt[0].bytesperline > bytesperline)
+-		bytesperline = pix->plane_fmt[0].bytesperline;
++		bytesperline = min_t(u32, pix->plane_fmt[0].bytesperline, OPE_MAX_W * 4);
+ 
+ 	/*
+ 	 * The WE requires the C plane base address to be 16-byte aligned.
+diff --git a/drivers/media/platform/qcom/camss/ope/params.c b/drivers/media/platform/qcom/camss/ope/params.c
+index ffdabf93a..0eddac876 100644
+--- a/drivers/media/platform/qcom/camss/ope/params.c
++++ b/drivers/media/platform/qcom/camss/ope/params.c
+@@ -60,6 +60,12 @@ int camss_isp_params_apply(struct device *dev,
+ 			return -EINVAL;
+ 		}
+ 
++		/* re-checked: the buffer is shared with userspace and may have changed */
++		if (type < num_handlers && handlers[type] && bsize < type_info[type].size) {
++			dev_dbg(dev, "params: block type %u too small (%u)\n", type, bsize);
++			return -EINVAL;
++		}
++
+ 		if (type < num_handlers && handlers[type])
+ 			handlers[type](priv, block);
+ 		else

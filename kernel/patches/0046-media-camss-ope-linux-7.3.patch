@@ -1,0 +1,76 @@
+media: qcom: camss: OPE: build on Linux 7.3
+
+The v5 series is based on a tree where the V4L2 ISP helpers still had
+their params-specific names and vb2_ops had wait_prepare/wait_finish.
+In 7.3 they are v4l2_isp_buffer_size() and V4L2_ISP_FL_DRIVER_FLAGS(),
+and vb2 takes q->lock itself (the driver sets it), so drop the two
+wait callbacks.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/platform/qcom/camss/ope/core.c b/drivers/media/platform/qcom/camss/ope/core.c
+index af09fbd08..0345ba25d 100644
+--- a/drivers/media/platform/qcom/camss/ope/core.c
++++ b/drivers/media/platform/qcom/camss/ope/core.c
+@@ -1616,7 +1616,7 @@ static int ope_queue_setup(struct vb2_queue *q, unsigned int *nbuffers,
+ 	else if (idx == OPE_QUEUE_DISP_OUT)
+ 		size = ctx->fmt_out.sizeimage ? ctx->fmt_out.sizeimage : PAGE_SIZE;
+ 	else
+-		size = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
++		size = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+ 
+ 	if (*nplanes) {
+ 		if (*nplanes != 1 || sizes[0] < size)
+@@ -1641,7 +1641,7 @@ static int ope_buf_prepare(struct vb2_buffer *vb)
+ 	else if (idx == OPE_QUEUE_DISP_OUT)
+ 		sizeimage = ctx->fmt_out.sizeimage;
+ 	else
+-		sizeimage = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
++		sizeimage = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+ 
+ 	if (V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
+ 		if (vb->vb2_queue->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+@@ -1815,8 +1815,6 @@ static const struct vb2_ops ope_vb2_ops = {
+ 	.buf_queue       = ope_buf_queue,
+ 	.start_streaming = ope_start_streaming,
+ 	.stop_streaming  = ope_stop_streaming,
+-	.wait_prepare    = vb2_ops_wait_prepare,
+-	.wait_finish     = vb2_ops_wait_finish,
+ };
+ 
+ static const unsigned int ope_queue_to_entity[] = {
+@@ -2108,7 +2106,7 @@ static int ope_s_fmt_vid_cap(struct file *file, void *priv, struct v4l2_format *
+ static int ope_g_fmt_meta(struct file *file, void *priv, struct v4l2_format *f)
+ {
+ 	f->fmt.meta.dataformat = V4L2_META_FMT_QCOM_ISP_PARAMS;
+-	f->fmt.meta.buffersize = v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
++	f->fmt.meta.buffersize = v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/media/platform/qcom/camss/ope/params.c b/drivers/media/platform/qcom/camss/ope/params.c
+index 0b1fc24cb..ffdabf93a 100644
+--- a/drivers/media/platform/qcom/camss/ope/params.c
++++ b/drivers/media/platform/qcom/camss/ope/params.c
+@@ -28,7 +28,7 @@ int camss_isp_params_apply(struct device *dev,
+ 	int ret;
+ 
+ 	ret = v4l2_isp_params_validate_buffer_size(dev, vb,
+-					v4l2_isp_params_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD));
++					v4l2_isp_buffer_size(CAMSS_OPE_PARAMS_MAX_PAYLOAD));
+ 	if (ret)
+ 		return ret;
+ 
+diff --git a/drivers/media/platform/qcom/camss/ope/params.h b/drivers/media/platform/qcom/camss/ope/params.h
+index c1e5594c5..f168b5e99 100644
+--- a/drivers/media/platform/qcom/camss/ope/params.h
++++ b/drivers/media/platform/qcom/camss/ope/params.h
+@@ -21,7 +21,7 @@
+ #define CAMSS_ISP_PARAMS_FMT_INIT \
+ 	{ .fourcc = V4L2_META_FMT_QCOM_ISP_PARAMS, .depth = 8, .align = 0, .num_planes = 1 }
+ 
+-#define CAMSS_ISP_PARAMS_FL_BLOCK_DIRTY   (1U << V4L2_ISP_PARAMS_FL_DRIVER_FLAGS(0))
++#define CAMSS_ISP_PARAMS_FL_BLOCK_DIRTY   (1U << V4L2_ISP_FL_DRIVER_FLAGS(0))
+ 
+ struct device;
+ struct vb2_buffer;

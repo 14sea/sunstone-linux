@@ -522,6 +522,13 @@
       （這台手機只有 OEM 簽名的 6.0.52，換不了固件）。要繼續的話：對照下游 msm_vidc 的 AR50 Lite 路徑（5.4 的
       techpack/video 不在小米的倉庫裡，要從 CLO 找）看緩衝區釋放（release buffer reference）和編碼會話的 HFI 屬性。
       對服務器用處不大。
+- [ ] **相機硬件 ISP（OPE）**（2026-10-27，boot-191，驅動能用、應用還用不上）：原廠 `qcom,ope@0x5c42000` 是離線
+      （內存到內存）ISP，和 qcm2290 同一塊。用上游 Loic Poulain 的 v5 系列（本地補丁 0042–0047，見 LOG boot-191）：
+      Bayer（8 位或 10 位 MIPI 打包）→ NV12/NV21/NV16/NV24/GREY，白平衡、去馬賽克、色度增強、色彩校正、縮放，參數經
+      `ope_params` 元數據節點。測試圖案正確，1080p 61 fps。**剩下的**：libcamera 沒有用 OPE 的 pipeline（現在 Snapshot 用
+      的是 CPU 上的軟件 ISP）。要做的是給 libcamera 的 simple pipeline 加一個 OPE 轉換器（類似它對 m2m converter 的支持，
+      RDI 原始幀經 dmabuf 送 OPE），白平衡/CCM 參數從軟件 ISP 的 3A 算法來；上游系列合入或改版時換成正式版本。
+      沒有 3A 統計（OPE 不出統計），AWB/AE 仍要 CPU 算。
 - [ ] 電荷泵快充（同上發現）：原廠 i2c10（我們的 i2c-2）上有 `lionsemi,ln8000@51` 和 `sc,sc8551-standalone@66` 兩個候選，
       **本機焊的是 SC8551**（2026-10-27 `i2cdetect -r` 只讀探測：0x66 應答，0x51 沒有）；沒建設備。要先開 PD（見 OTG 剩下的）
       才有意義；永久接電的服務器不需要。
