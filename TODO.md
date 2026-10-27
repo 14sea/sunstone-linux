@@ -460,3 +460,13 @@
       覆蓋過的值直接寫最終值），加 `-rescue.dts`（救援模式，shim 不開看門狗）。校驗：兩者經 cpp + `dtc -O dts -s` 展開排序、
       去掉 phandle 行後，只差 model 字符串。舊文件和二分樹（m6a/e/f/g、m3rescue）在 git tag `dts-milestones`。
       `tools/mkboot.sh sunstone` / `rescue`，內核默認 m6。
+- [x] **microSD**（2026-10-27，boot-178）：`sdhc_2`（mainline sm6375.dtsi 已有，disabled）+ PM6125 L22（卡 2.96 V）/ L5（I/O，
+      1.8 V UHS-I）+ 插卡檢測 GPIO94 高有效，和原廠、Sony pdx225 一樣。GPIO94 跟的是卡托不是卡：只有 SIM 時也是高
+      （核心試一次，沒有卡應答，不報錯），拔卡托時跳變。實測 SanDisk 64 GB SDXC：UHS-I SDR104 202 MHz、1.8 V 信號；
+      重新分區成 GPT 一個 ext4（標籤 `sdcard`），寫 28 MB/s（direct，2 GiB）、讀 69–74 MiB/s，1 GiB 隨機數據丟緩存後
+      sha256 一致，內核無 mmc 錯誤。沒有開機自動掛載（要的話在 fstab 加 `LABEL=sdcard ... nofail`）。
+      注意：Ubuntu 26.04 的 dd 是 uutils 0.10.0，`iflag=direct` 讀文件報 `IO error: Invalid input`（不是內核問題）。
+- [ ] 熱插拔卡托（SIM 和 SD 在同一個卡托）後 modem 沒有主 GW provisioning 會話：UIM 報 USIM `detected`，ModemManager 反覆建
+      modem 又以 `sim-missing` 失敗，重啟 MM 也一樣。手動 `qmicli -d qrtr://0 --uim-change-provisioning-session=
+      "slot=1,activate=yes,session-type=primary-gw-provisioning,aid=<USIM 的 AID>"` 後重啟 MM，馬上註冊（2026-10-27）。
+      可以做成 UIM 卡狀態變化時自動激活的腳本，或查 MM 的 qcom-soc 為什麼開機時能做、熱插拔後不做。

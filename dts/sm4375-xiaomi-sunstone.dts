@@ -1901,6 +1901,13 @@
 			regulator-allow-set-load;
 		};
 
+		/* microSD I/O (downstream vdd-io 1.8-2.96 V), as pdx225 */
+		pm6125_l5: l5 {
+			regulator-min-microvolt = <1650000>;
+			regulator-max-microvolt = <2960000>;
+			regulator-allow-set-load;
+		};
+
 		/* USB HS PHY core (downstream qcom,vdd-voltage-level 0.88 V), UFS PHY */
 		pm6125_l7: l7 {
 			regulator-min-microvolt = <880000>;
@@ -1950,6 +1957,13 @@
 		pm6125_l21: l21 {
 			regulator-min-microvolt = <3304000>;
 			regulator-max-microvolt = <3304000>;
+		};
+
+		/* microSD card (downstream vdd 2.96 V), as pdx225 */
+		pm6125_l22: l22 {
+			regulator-min-microvolt = <2704000>;
+			regulator-max-microvolt = <2960000>;
+			regulator-allow-set-load;
 		};
 
 		/* WLAN 3.3 V ch0, Bluetooth vddch0 */
@@ -2168,6 +2182,40 @@
  * locally administered one (02:53:4e:00:00:11, byte order reversed here) instead of the phone's own
  * from persist, which stays out of this repository; without one the controller stays unconfigured.
  */
+/*
+ * microSD slot (downstream sdhci@4784000, no-mmc/no-sdio): card 2.96 V on PM6125 L22, I/O on L5
+ * (1.8 V for UHS-I), card detect GPIO94 active high, pulled up while on; values as on Sony's
+ * pdx225 (same SoC and PMIC wiring). GPIO94 follows the SIM tray, not the card: it is high with
+ * only the SIM in the tray too (the core then tries once and finds no card) and toggles when the
+ * tray comes out.
+ */
+&sdhc_2 {
+	vmmc-supply = <&pm6125_l22>;
+	vqmmc-supply = <&pm6125_l5>;
+	cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
+	no-mmc;
+	no-sdio;
+	status = "okay";
+};
+
+&sdc2_off_state {
+	sd-cd-pins {
+		pins = "gpio94";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
+&sdc2_on_state {
+	sd-cd-pins {
+		pins = "gpio94";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+};
+
 /*
  * IR transmitter: an LED on the QUP0 SE2 SPI (downstream spi@4a88000, GPIO45/46/56/57, GPI DMA, the
  * SE in GSI mode), downstream ir-spi-led at 19.2 MHz; the LED is pulsed by the MOSI bit pattern.
