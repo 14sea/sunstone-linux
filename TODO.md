@@ -119,7 +119,15 @@
         USB（gadget 連着就必須開；dwc3 默認 `power/control=on`，拔線也不掛起，設 auto 後拔線 XO 計數 0）。總線睡眠集合投 0
         （`kernel/debug/rpm-sleep-vote`）、Wi-Fi 省電、卸 SD、停 CDSP、modem 低功耗都試過，仍為 0。SMEM 子系統統計
         （`kernel/debug/smem-sleep-peek`）：APSS、ADSP、CDSP 都在睡，**modem 1731 s 裏只睡了 244 s**，是現在的阻塞者
-        （WLAN 固件在 modem Q6 上；下一步：Wi-Fi 省電開 + modem 低功耗同時、或關 Wi-Fi 看 modem 計數）。注意：讀 RPM
+        （WLAN 固件在 modem Q6 上）。**modem 分級實驗（boot-184，SMEM 統計，USB 插着也能看）**：Wi-Fi 省電關時
+        modem 每 10 s 睡 0 s；省電開約 9 s（每秒醒約 3.5 次，聽 beacon）；Wi-Fi 關約 9.3 s；再加 modem 低功耗 10 s。
+        即 **Wi-Fi 省電關 = modem 一直醒着**（用户之前定的「只有藍牙連着時才開省電」，為了 DSCP EF 大包/ssh KEX 問題，
+        要用户重新權衡）。但 USB 斷開 + Wi-Fi 省電開（modem 90% 在睡、APSS/ADSP/CDSP 都在睡）90 s，vlow/vmin 仍 0；
+        再給 BIMC/CNOC/SNOC/MMNRT/MMRT/QUP/SNOC_PERIPH/SNOC_LPASS 和 QDSS/BIMC_FREQ_LOG/CE1/HWKM/PKA 的 APSS 睡眠集合投 0
+        （`kernel/debug/rpm-sleep-vote misc=1`）也仍 0。RPM 的 APSS master stats（`rpm-master-peek count=1`）`xo_count`
+        一直 0，大概是「整片 XO 關過幾次」而不是 APSS 自己的投票，不能據此定位。APSS 每秒醒約 20 次（function-call IPI
+        39/s、定時器廣播 31/s、UFS 4.5/s、glink-rpm 2.3/s）。沒查的：RPM 穩壓器的睡眠集合、TZ、RPM 固件是否在 runtime
+        idle 做 XO 關閉（下游可能只在 suspend 時）。注意：讀 RPM
         msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。sm6375 沒有主線
         interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX。
       - 剩下：**RPM vmin/vlow 計數一直是 0**（空閒和 s2idle 都是），SoC 從沒進 XO 關閉/最低電壓，vlow 的 Client Votes
