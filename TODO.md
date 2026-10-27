@@ -376,7 +376,13 @@
         自動對焦：udev（`71-sunstone-camera-focus.rules`）把位置定在 480（遠景最清晰在 464–480，350 以下鏡頭不動）。
         用户：遠處清楚了一些。馬達只在主攝出流時通電（0023/0024：PipeWire 一直開着它的節點，原來線圈一直通電、
         cam_vio 常開）；DW9800 在鏡頭移動時丟掉新位置（0026：等狀態寄存器 0x05 的忙位）。
-  - [ ] 主攝：自動對焦（libcamera 軟件 IPA 沒有 AF 算法）；EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
+  - [x] 主攝：自動對焦（2026-10-27）：libcamera 0.7.0（和 Ubuntu 同版本）加本地補丁 `tools/ubuntu/libcamera-sunstone-af.patch`，
+        `add-libcamera-af.sh` 編進 /usr/local（同 SONAME，`libdir=lib/aarch64-linux-gnu`，否則加載器先找到 Ubuntu 的；
+        裝完檢查 PipeWire 插件要的符號都在）。軟件 ISP 的統計加清晰度（中心 1/9，同色相鄰像素差的平方和，按亮度² 歸一），
+        simple IPA 加 `Af`（粗掃 48、過峰提前停、細掃 12，連續模式默認；清晰度掉到 60% 以下 4 次重掃，只有亮度變化時
+        只換基準），simple 管線經 CameraLens 移鏡頭；`ov48b2q.yaml` 調參（320–1023，無對比度時 472）。`cam` 實測：
+        320→608 粗掃、464–560 細掃，對焦在 512（比最差高約 17 倍），約 2.3 s；前攝、景深攝不受影響。用戶用 Snapshot 看沒做。
+  - [ ] 主攝：EEPROM 0x51 的鏡頭陰影/白平衡校準沒用。
   - [x] 後置 2 MP SC202CS（cci1 0x36，CSIPHY2，1 lane，MCLK2 24 MHz，復位 GPIO36，LDO4）：本地補丁 0021（驅動，Motorola
         MTK 驅動的初始化表），1600x1200 30 fps；rotation 90。單色模組（原始幀四個 Bayer 位置相差 1 % 以內），驅動照樣報
         SBGGR10，軟件 ISP 出灰度畫面。用户確認方向正確、黑白。

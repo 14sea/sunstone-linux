@@ -21,7 +21,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | microSD | UHS-I SDR104 (sdhc_2), card detect on the SIM tray switch |
 | USB | NCM + ACM gadget (ssh and a serial console from the host); OTG host through the HUSB311 Type-C port controller (TCPM, dual role), VBUS from the charger's boost (0028); USB 2.0 |
 | Audio | speaker (LPASS, WCD9370 codec, SIA8159 amplifier: 0011-0016), main and second microphones, headphones with jack detection; ALSA UCM for PipeWire and GNOME |
-| Cameras | 48 MP OV48B2Q main (4000x3000 and 2000x1500: 0020, 0022) with its DW9800 AF actuator held at the far focus, 8 MP OV08D10 front, 2 MP SC202CS (monochrome depth: 0021); CAMSS for SM6375 (0018), WL2866D camera LDOs (0017); libcamera's software ISP, GNOME Snapshot (portrait and landscape); rear flash LED (KTD2691 as an LM36011: 0025, 0027) |
+| Cameras | 48 MP OV48B2Q main (4000x3000 and 2000x1500: 0020, 0022) with contrast-detect autofocus on its DW9800 actuator (libcamera patch, `tools/ubuntu/add-libcamera-af.sh`), 8 MP OV08D10 front, 2 MP SC202CS (monochrome depth: 0021); CAMSS for SM6375 (0018), WL2866D camera LDOs (0017); libcamera's software ISP, GNOME Snapshot (portrait and landscape); rear flash LED (KTD2691 as an LM36011: 0025, 0027) |
 | Cellular | mobile data through IPA v4.11 and ModemManager (tested with an IoT SIM) |
 | Sensors | accelerometer, gyroscope, light, proximity, magnetometer and compass through the ADSP's SSC (hexagonrpcd with writes, libssc, iio-sensor-proxy); GNOME auto-rotate |
 | Other | vibration motor, IR transmitter |
@@ -104,6 +104,6 @@ built into the kernel image, regulatory.db, is fetched by `tools/fetch-firmware.
 ## Licensing
 
 Kernel patches are GPL-2.0 (the kernel's licence); the DTS files are BSD-3-Clause. The patches in
-`tools/ubuntu/` are under the licence of the program they patch (GNOME Snapshot: GPL-3.0-or-later).
+`tools/ubuntu/` are under the licence of the program they patch (GNOME Snapshot: GPL-3.0-or-later; libcamera: LGPL-2.1-or-later).
 The shim comes from `14sea/ios-sunstone`, which builds on `ios-topaz`; no licence is claimed for it
 here.

@@ -1,5 +1,6 @@
-# sunstone: libcamera's software ISP has no autofocus, so the main camera's lens stays where its
-# actuator (DW9800, driver dw9719) is told: about the far focus. Measured on a far scene (boot-164):
+# sunstone: the main camera's lens (DW9800, driver dw9719) starts at about the far focus. Ubuntu's
+# libcamera has no autofocus and leaves it there; the one from tools/ubuntu/add-libcamera-af.sh
+# scans from here on while the camera streams. Measured on a far scene (boot-164):
 # the lens moves above about 350 (0-320 all the same, its rest), sharpest at 464-480. The driver
 # keeps the value and moves the lens there while the main camera streams (the actuator is powered
 # only then: kernel/patches/0023, 0024).
