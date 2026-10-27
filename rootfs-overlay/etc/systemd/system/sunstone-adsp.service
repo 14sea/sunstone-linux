@@ -1,5 +1,5 @@
 [Unit]
-Description=sunstone: start the ADSP once its firmware is readable
+Description=sunstone: start the ADSP and the CDSP once their firmware is readable
 # remoteproc's auto-boot runs when the PAS driver probes (0.4 s), before the root filesystem with
 # /lib/firmware/qcom/sm4375/... is mounted, and gives up; the modem probes later and boots by itself
 After=local-fs.target
@@ -7,7 +7,7 @@ After=local-fs.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'for r in /sys/class/remoteproc/remoteproc*; do [ "$(cat $r/name)" = adsp ] && [ "$(cat $r/state)" = offline ] && echo start > $r/state; done; true'
+ExecStart=/bin/sh -c 'for r in /sys/class/remoteproc/remoteproc*; do case "$(cat $r/name)" in adsp|cdsp) [ "$(cat $r/state)" = offline ] && echo start > $r/state;; esac; done; true'
 
 [Install]
 WantedBy=multi-user.target

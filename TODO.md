@@ -114,7 +114,7 @@
         最慢 wiphy（約 220–290 ms）。`rtcwake -m freeze -s N`（RTC 不是 UTC 牆鐘，rtcwake 打印 1972 年，無害）。
       - 剩下：**RPM vmin/vlow 計數一直是 0**（空閒和 s2idle 都是），SoC 從沒進 XO 關閉/最低電壓，vlow 的 Client Votes
         0x7030703，要查是誰的投票（APSS 的 RPM 時鐘、interconnect、modem/ADSP/WLAN）；Wi-Fi 喚醒（WoWLAN：固件支持
-        魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；USB 線上休眠後 gadget 要重連。
+        魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；USB 線上休眠後 gadget 要重連（插着線休眠時 `dwc3-qcom: port-1 HS-PHY not in L2`）。
 - [x] 內核源碼改由 git 管理（2026-10-23）：`tools/mk-kernel-tree.sh` 從 tarball + `kernel/patches/` 建出
       `src/linux-7.3`（tag `v7.3-tarball`，分支 `sunstone`，調試放在其上的分支，現在是 `debug/panel-early-bind`）；
       `build-kernel.sh` 不再打補丁，每次從 defconfig 重建 `.config`（`EXTRA_CONFIG=` 加調試片段），把源碼 commit、
@@ -479,8 +479,13 @@
       `qcom,trng` 註冊成 hwrng，`qcom,prng`/`prng-ee` 只綁定、什麼都不做；同地址的 agatti 在主線是 prng-ee，沒有資料說 holi
       的是 TRNG，不能硬寫成 trng 給它記滿熵。內核不缺熵（沒有硬件 RNG 時 `crng init done` 在 4.1 s），CPU 有 AES/SHA 指令，
       加密引擎（qcrypto）也就不需要。
-- [ ] CDSP（Turing，2026-10-27 對照原廠 live DT 發現）：主線 sm6375.dtsi 有 `remoteproc_cdsp`（`qcom,sm6375-cdsp-pas`，
-      0xb300000），板級 DTS 沒打開；手機上只有 `cdspr.jsn`，沒有 `cdsp.mdt`（要從 vendor_a 的 firmware 拷）。現在只跑 modem、adsp。
+- [x] **CDSP**（Turing，2026-10-27 對照原廠 live DT 發現，同日做完，boot-182）：板級 DTS 打開 `remoteproc_cdsp`
+      （`qcom,sm6375-cdsp-pas` = 主線的 sm8150 CDSP 數據：PAS 18、crash reason SMEM 601，和原廠 `qcom,turing@b000000` 一樣），
+      固件 modem_a 的 `cdsp.mdt/.bNN`（sunstone-fw-install 一起拷），載體 0x88f00000；fastrpc 的 compute-cb 1–6 =
+      原廠 cdsprpc-smd 的流 0x1001–0x1006（secure 的 cb9/0x1009 沒放）。PAS 驅動 0.3 s 的自動啟動找不到固件（和 ADSP 一樣），
+      `sunstone-adsp.service` 現在也啟動 CDSP。驗證：`remote processor cdsp is now up`、QRTR node 10 的 5 個服務、
+      `/dev/fastrpc-cdsp` 上 `FASTRPC_IOCTL_INIT_ATTACH` 返回 0；重啟後自動起來；CDSP 運行時 pm_test platform 和 RTC 喚醒的
+      s2idle 正常，醒後仍 running。RPM vlow 的 Client Votes 0x7030703 → 0xb030703（多了 CDSP 的一票）。還沒有用戶態程序用它。
 - [ ] Venus 視頻編解碼（同上發現）：原廠 `qcom,venus@5ab0000`（pil-tz-generic），完全沒做，沒有硬件編解碼。主線 venus 有
       `qcom,qcm2290-venus`（AR50 Lite），holi 的是不是同一代沒查；對服務器用處不大。
 - [ ] 電荷泵快充（同上發現）：原廠 i2c10（我們的 i2c-2）上有 `lionsemi,ln8000@51` 和 `sc,sc8551-standalone@66` 兩個候選，

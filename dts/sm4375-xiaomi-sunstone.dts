@@ -1879,6 +1879,64 @@
 	};
 };
 
+/*
+ * CDSP (Turing, the compute DSP): firmware from the phone's modem_a (cdsp.mdt/.bNN), the carve-out at
+ * 0x88f00000 above; PAS 18 and crash reason SMEM 601 as downstream's qcom,turing@b000000.
+ * FastRPC context banks: downstream msm_fastrpc_compute_cb1..6 (cdsprpc-smd), streams 0x1001-0x1006
+ * (cb9, 0x1009, is the secure one and left out).
+ */
+&remoteproc_cdsp {
+	firmware-name = "qcom/sm4375/xiaomi/sunstone/cdsp.mdt";
+	status = "okay";
+
+	glink-edge {
+		fastrpc {
+			compatible = "qcom,fastrpc";
+			qcom,glink-channels = "fastrpcglink-apps-dsp";
+			label = "cdsp";
+			qcom,non-secure-domain;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			compute-cb@1 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <1>;
+				iommus = <&apps_smmu 0x1001 0x0>;
+			};
+
+			compute-cb@2 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <2>;
+				iommus = <&apps_smmu 0x1002 0x0>;
+			};
+
+			compute-cb@3 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <3>;
+				iommus = <&apps_smmu 0x1003 0x0>;
+			};
+
+			compute-cb@4 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <4>;
+				iommus = <&apps_smmu 0x1004 0x0>;
+			};
+
+			compute-cb@5 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <5>;
+				iommus = <&apps_smmu 0x1005 0x0>;
+			};
+
+			compute-cb@6 {
+				compatible = "qcom,fastrpc-compute-cb";
+				reg = <6>;
+				iommus = <&apps_smmu 0x1006 0x0>;
+			};
+		};
+	};
+};
+
 &remoteproc_mss {
 	firmware-name = "qcom/sm4375/xiaomi/sunstone/modem.mdt";
 	status = "okay";
