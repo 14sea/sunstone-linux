@@ -39,8 +39,9 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Media | PipeWire in 16 bit with the UCM profile; cameras through libcamera's simple pipeline and PipeWire's libcamera plugin (WirePlumber's V4L2 monitor off), buffers from the system dma-buf heap; GNOME Snapshot built with a patch that turns the preview and the pictures with the display (`tools/ubuntu/add-snapshot.sh`); libcamera 0.7.0 with contrast-detect autofocus in `/usr/local` (`tools/ubuntu/add-libcamera-af.sh`), switched to a fixed focus at about 2 m with `sunstone-camera-focus fixed` or GNOME's Camera Focus launcher |
 | Sensors | hexagonrpcd built with a write patch (`tools/ubuntu/add-hexagonrpcd.sh`), libssc and iio-sensor-proxy with SSC support (`tools/ubuntu/add-ssc.sh`) |
 
-Open items are in `TODO.md` (the SoC's low-power modes, the 24 h soak on Ubuntu, earpiece, SMS, GNOME's
-smoothness, panel brightness curve, DSI PHY clock warning, dispcc PLL latch, ...).
+Open items are in `TODO.md` (the SoC's low-power modes, the 24 h soak on Ubuntu, earpiece, SMS, Venus with
+this firmware, the OPE and lens shading in libcamera, GNOME's smoothness, panel brightness curve, DSI PHY clock
+warning, dispcc PLL latch, ...).
 
 | Milestone | State |
 | --- | --- |
@@ -52,7 +53,7 @@ smoothness, panel brightness curve, DSI PHY clock warning, dispcc PLL latch, ...
 | M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver, built in |
 | Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak |
 | Ubuntu | Ubuntu Server 26.04 replaces Arch; Bluetooth; GNOME and Lomiri as optional desktops |
-| Peripherals | audio, sensors, cellular data, cameras and flash, vibration, IR (2026-10-25/26); board thermistors, pstore, microSD, main camera autofocus (2026-10-27) |
+| Peripherals | audio, sensors, cellular data, cameras and flash, vibration, IR (2026-10-25/26); board thermistors, pstore, microSD, main camera autofocus, then the SM6375 interconnects, the battery thermal zone, the OPE offline ISP and the camera EEPROM (2026-10-27) |
 
 ## How it boots
 
@@ -98,14 +99,15 @@ Kernel changes are made as commits on `sunstone` in `src/linux-7.3` and written 
 
 No vendor firmware is in this repository. The phone's own partitions provide it at run time,
 all mounted read-only (`rootfs-overlay/usr/local/sbin/sunstone-fw-install`: modem, ADSP and WLAN
-firmware from modem_a; the GPU zap shader, the IPA's GSI firmware and the sensor configuration
+firmware from modem_a, Venus' too; the GPU zap shader, the IPA's GSI firmware and the sensor configuration
 from the vendor partition; Bluetooth from bluetooth_a; the sensor registry from persist and the
 DSP libraries from dsp_a); the GPU SQE microcode comes from `linux-firmware`. The one file
 built into the kernel image, regulatory.db, is fetched by `tools/fetch-firmware.sh`, pinned by sha256.
 
 ## Licensing
 
-Kernel patches are GPL-2.0 (the kernel's licence); the DTS files are BSD-3-Clause. The patches in
+Kernel patches are GPL-2.0 (the kernel's licence); 0042-0045 are Loic Poulain's CAMSS OPE v5 series as posted,
+and the SM6375 NoC driver (0036) carries node data from Xiaomi's GPL kernel source. The DTS files are BSD-3-Clause. The patches in
 `tools/ubuntu/` are under the licence of the program they patch (GNOME Snapshot: GPL-3.0-or-later; libcamera: LGPL-2.1-or-later).
 The shim comes from `14sea/ios-sunstone`, which builds on `ios-topaz`; no licence is claimed for it
 here.

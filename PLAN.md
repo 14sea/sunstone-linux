@@ -60,7 +60,8 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
   `pinctrl-sm6375`、DPU catalog `dpu_6_9_sm6375.h`、Adreno a619_holi（chip id `0x06010901`），以及
   `pm6125`/`pmk8350`/`pmr735a` 的 dtsi。缺口：**沒有 sm6375 的 interconnect 驅動**（帶寬投票要靠
   bootloader 留下的狀態，或者先不接 icc）；**`phy-qcom-qmp-ufs` 沒有 sm6375 的條目**（只有同代
-  sm6115 的表，M3 要對照下游 DT 的 UFS PHY 補一個）。
+  sm6115 的表，M3 要對照下游 DT 的 UFS PHY 補一個）。兩個缺口後來都補了：UFS PHY 是本地補丁 0001（M3），interconnect 是 0036
+  （2026-10-27，節點數據取自小米 sunstone-u-oss 內核的 holi.c）。
 - 從 `ios-sunstone` 拷 shim（去掉 `gpu.c`），加上構建和刷機腳本（沿用 `tools-host/chain-boot.sh` 的流程）。
 - 完成標準：本機能構建出 `boot_a` 鏡像，內含 shim + 一個測試 payload。
 

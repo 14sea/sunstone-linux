@@ -2,7 +2,8 @@
 
 按優先順序。M5（Wi-Fi）走通後先回來處理「遺留問題」，再進 M6。現在（2026-10-27）：Ubuntu 上，外設見「還不能用的」
 （音頻、傳感器、蜂窩數據、攝像頭和主攝自動對焦、microSD 已做），長期熄屏運行見「服務器」（pstore、板上熱敏電阻
-2026-10-27 做完）。
+2026-10-27 做完）。2026-10-27 晚按原廠 DT 對照做了「以後」裡的幾項：總線調節（interconnect + BWMON）、電池溫區和
+PM6125 溫度報警、Venus（能探測，關着）、OPE（離線 ISP）、主攝 EEPROM；現在的生產鏡像是 boot-192。
 
 ## 遺留問題（M4 結束時，2026-10-22）
 
@@ -127,10 +128,12 @@
         一直 0，大概是「整片 XO 關過幾次」而不是 APSS 自己的投票，不能據此定位。APSS 每秒醒約 20 次（function-call IPI
         39/s、定時器廣播 31/s、UFS 4.5/s、glink-rpm 2.3/s）。沒查的：RPM 穩壓器的睡眠集合、TZ、RPM 固件是否在 runtime
         idle 做 XO 關閉（下游可能只在 suspend 時）。注意：讀 RPM
-        msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。sm6375 沒有主線
-        interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX。
+        msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。（當時）sm6375 沒有
+        interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX；**boot-185 起有了（本地補丁 0036）**，總線按投票走，
+        空閒時 vlow/vmin 仍 0（boot-185 只看了開機後幾分鐘，沒重做上面的實驗）。
       - 剩下：**RPM vmin/vlow 計數一直是 0**（空閒和 s2idle 都是），SoC 從沒進 XO 關閉/最低電壓，vlow 的 Client Votes
-        0x7030703，要查是誰的投票（APSS 的 RPM 時鐘、interconnect、modem/ADSP/WLAN）；Wi-Fi 喚醒（WoWLAN：固件支持
+        0x7030703，要查是誰的投票（APSS 的 RPM 時鐘、interconnect（現在由 0036 管，可在
+        `/sys/kernel/debug/interconnect/interconnect_summary` 看各消費者的票）、modem/ADSP/WLAN）；Wi-Fi 喚醒（WoWLAN：固件支持
         魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；USB 線上休眠後 gadget 要重連（插着線休眠時 `dwc3-qcom: port-1 HS-PHY not in L2`）。
 - [x] 內核源碼改由 git 管理（2026-10-23）：`tools/mk-kernel-tree.sh` 從 tarball + `kernel/patches/` 建出
       `src/linux-7.3`（tag `v7.3-tarball`，分支 `sunstone`，調試放在其上的分支，現在是 `debug/panel-early-bind`）；
@@ -269,7 +272,8 @@
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。
 - [ ] Ubuntu 上跑一次 24 h 穩定性測試（之前用户說先不開始）：在最終配置上（modem 修復、電源鍵、啟動成功標記、省電關、
-      開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時也要測一次重連）。
+      開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時也要測一次重連）。boot-185 起總線改由 interconnect 驅動調頻，
+      這次測試也是對它的長時間驗證（看 dmesg 裡的 underrun、SMMU fault 和 `interconnect_summary`）。
 
 ## 還不能用的（2026-10-25 整理；以前只寫在別的條目裡；2026-10-26 更新）
 
@@ -390,7 +394,7 @@
       本機的值（一個只讀的臨時模塊 `qcom_smem_get(135)` 讀到）不是 global。硬件上也確認了（boot-144）：開 i2c0、GPIO6 輸出高
       （pinctrl debugfs `out high`）後整條總線掃描沒有任何應答，VEN 低時也沒有；同樣的掃描在 i2c10 上能看到沒綁驅動的 0x28、0x4e、0x66。
 - [x] 攝像頭（2026-10-26，boot-154–167；自動對焦 2026-10-27，見下）：本機三個傳感器，供電都在 i2c10 的 WL2866D（本地補丁 0017）上，I/O 是 GPIO38
-      的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018），沒有 interconnect。
+      的 CAM_VIO。CAMSS 按 qcm2290 的 TFE/CSID 340 + CSIPHY 1.2.1（本地補丁 0018）；interconnect 投票 2026-10-27 起有（0037）。
   - [x] 前攝 OV08D10（cci1 0x10，CSIPHY3，2 lane，MCLK3 24 MHz，復位 GPIO37，LDO2 + LDO4）：主線驅動 + 0019（rotation）；
         RAW10 抓幀、libcamera simple 管線 + 軟件 ISP（1632x1224 約 29 fps，3200x2400 30 fps，緩衝區在 system dma-heap），
         PipeWire / GNOME 相機（Snapshot，用户確認豎屏方向正確；橫屏差 90°，是 Snapshot 不管屏幕旋轉）。

@@ -71,6 +71,10 @@ Low-power investigation (2026-10-27, `TODO.md` under suspend), built like `ramoo
 - `rpm-sleep-vote`: an experiment, not a fix: sends 0 in the APSS's RPM sleep set for the bus clocks
   no interconnect driver manages on SM6375 (and with `misc=1` for the RPM clocks that
   clk_ignore_unused leaves at their hand-off vote); unloading sends the hand-off values back.
+  Written before the SM6375 NoC driver (local patch 0036, 2026-10-27): it now owns the bus clocks
+  (BIMC, CNOC, SNOC, QUP, MMRT, MMNRT) with their sleep-set votes, so this module's bus-clock writes
+  now fight the driver's, and unloading it sends INT_MAX over them until the driver votes again.
+  Only the `misc=1` clocks (QDSS, BIMC_FREQ_LOG, CE1, HWKM, PKA) are still nobody else's.
 
 ## `mmio-peek/`, `mmio-poke/`
 
