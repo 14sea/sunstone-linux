@@ -119,13 +119,33 @@
 			no-map;
 		};
 
-		/* the downstream kernel's layout, so either kernel reads the other's records */
+		/*
+		 * The downstream kernel's region. Records survive only a warm reset (see the reboot node):
+		 * the last boot's console (1 MiB), six 128 KiB dmesg records for oopses and panics
+		 * (systemd-pstore keeps each in its own directory), 256 KiB pmsg (the initramfs's line).
+		 */
 		ramoops@d0000000 {
 			compatible = "ramoops";
 			reg = <0x0 0xd0000000 0x0 0x200000>;
+			record-size = <0x20000>;
 			console-size = <0x100000>;
-			pmsg-size = <0x100000>;
+			pmsg-size = <0x40000>;
 		};
+	};
+
+	/*
+	 * Restart by dropping PS_HOLD (downstream's qcom,pshold node), ahead of PSCI (priority 129):
+	 * this TZ has no SYSTEM_RESET2, and its SYSTEM_RESET is a cold reset whatever PS_HOLD type the
+	 * PMIC is set to, so DRAM decays (~8% of the bits in 1 s) and ramoops loses everything. Dropping
+	 * PS_HOLD resets with the PON's type, warm with reboot=warm (pm8941-pwrkey, local patch 0029:
+	 * from probe on, so panics too): DDR stays in self-refresh. Falls back to PSCI after 1 s.
+	 */
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&pshold>;
+		offset = <0x0>;
+		value = <0x0>;
+		priority = <192>;
 	};
 
 	/* the touch controller's analog supply, switched by GPIO49; on already when ABL hands over */
@@ -336,6 +356,12 @@
 				reg = <0x6015 0x1>;
 				bits = <0 8>;
 			};
+		};
+
+		/* MPM PS_HOLD: writing 0 drops it, the PMIC then resets (see the reboot node) */
+		pshold: syscon@440b000 {
+			compatible = "syscon";
+			reg = <0x0 0x0440b000 0x0 0x4>;
 		};
 
 		ufs_mem_hc: ufshc@4804000 {

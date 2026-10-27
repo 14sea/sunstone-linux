@@ -1,0 +1,11 @@
+[Unit]
+Description=sunstone: keep each boot's archived ramoops records in a directory of its own
+After=systemd-pstore.service
+ConditionDirectoryNotEmpty=/var/lib/systemd/pstore
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sunstone-pstore-keep
+
+[Install]
+WantedBy=multi-user.target

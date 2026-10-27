@@ -47,3 +47,14 @@ the panel driver after a delayed attach leaves the DSI component bound to freed 
 second bind can add the component twice, and `attached` is set before the attach succeeds. The
 unbind/bind of boot-44 only worked because the first probe had not attached yet. Good enough for
 the experiments, not for anything else; the `sunstone` branch uses `devm_mipi_dsi_attach()`.
+
+## `ramoops-peek/`
+
+A module that copies a physical RAM range (default: the ramoops region, 2 MiB at 0xd0000000) when it
+loads and shows it read-only at `/sys/kernel/debug/ramoops-peek`, to see what a reset does to the
+region without trusting ramoops' headers (2026-10-27: DRAM decay under PSCI's cold reset). Built
+against the running kernel's build tree:
+
+    make -C src/linux-7.3 O=$PWD/out/kbuild ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+        M=$PWD/kernel/debug/ramoops-peek MO=/tmp/peek modules
+    insmod ramoops-peek.ko [phys=0x... size=0x...]

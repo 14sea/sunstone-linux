@@ -89,9 +89,17 @@
       跳過了要寫的寄存器 → 本地補丁 0016（wcd937x 組件 unbind 時硬件復位芯片）。boot-153 對照：重啓後 A、模擬崩潰後 B，
       三聲嘀都錄到（約 −36 dBFS），用户聽着一樣、無爆音。剩下：解綁時 `qcom_swrm_remove` 對已
       runtime suspend 的控制器 `clk_disable`（"already disabled" WARNING，主線 bug，無害）；沒試真的 DSP 崩潰。
-- [ ] pstore 不可用：開 ECC 後普通 reboot 能留下 console 記錄，但 DDR 在復位期間衰減嚴重（411 個塊無法糾正）；
-      panic 走的是進 fastboot 的路徑，ABL 可能還會覆蓋。M1 時記錄基本完整（16 KB 約 10 處位翻轉）。ramoops 的
-      ECC/dmesg 區從沒進過倉庫裏的 DTS（試驗時是臨時改的）。
+- [x] **pstore**（2026-10-27，boot-177）：原來不可用：DDR 在復位期間衰減（`ramoops-peek` 看到 pmsg 區 900 KB 的圖案
+      約 8% 的位翻轉，均勻分佈在每一頁，不是被覆蓋）。原因：TZ 沒有 PSCI SYSTEM_RESET2（SMC64/SMC32 的 PSCI_FEATURES
+      都是 −1），Linux 只能用 SYSTEM_RESET，那是冷復位，PM6125 PON 的 PS_HOLD 類型（0x85a，ABL 開機時設成 0x07 硬復位）
+      寫成熱復位也沒用。修法：① DTS `syscon-reboot`（優先級 192，先於 PSCI 的 129）寫 0 到 MPM PS_HOLD（0x440b000，下游的
+      `qcom,pshold`），PMIC 按 PS_HOLD 類型復位，1 s 後還活着就回落到 PSCI；② 本地補丁 0029：`pm8941-pwrkey` 在 probe 時就按
+      `reboot=warm` 設熱復位（原來只在 reboot notifier 裏設，panic 的 emergency restart 不走 notifier）。驗證：模塊實驗
+      （熱類型 + 拉 PS_HOLD）後 900 KB 圖案只差頭部 6 個字節；boot-177 上普通 reboot、sysrq panic、全部 CPU 關中斷卡死
+      （看門狗 bite，TZ 復位）三種都留下記錄（console 最後一行就是復位前那條）。ramoops 佈局改成 console 1 MB + 6 個
+      128 KB 的 dmesg 記錄（oops/panic）+ pmsg 256 KB，沒開 ECC（熱復位後 0 位翻轉）。之前「pstore 是空的」還有一半是
+      systemd-pstore：它把記錄搬到 /var/lib/systemd/pstore 並刪掉 pstore 裡的；每次開機用同樣的文件名覆蓋 →
+      `sunstone-pstore-keep.service` 把每次的記錄放進 `/var/lib/systemd/pstore/<UTC 時間>/`，保留最新 30 份。
 - [ ] lockdep 報告（調試內核，boot-53）：PSCI cpuidle 電源域 `genpd_add_subdomain` 裏 raw spinlock 下拿普通
       spinlock（Invalid wait context）；`qcom_scm_probe` → `qcom_tzmem_enable` → `qcom_scm_shm_bridge_enable`
       在原子上下文調用會睡眠的 SCM 調用。都像上游問題，和顯示無關。

@@ -1,0 +1,11 @@
+#!/bin/sh
+# sunstone: systemd-pstore moves the ramoops records of the previous boot (console-ramoops-0,
+# dmesg-ramoops-N of an oops or panic, pmsg-ramoops-0) to /var/lib/systemd/pstore under the same
+# names every boot, so the next boot overwrites them. Move them into a directory per boot (named
+# by the time they were archived) and keep the newest 30.
+D=/var/lib/systemd/pstore
+set -- "$D"/*-ramoops-*
+[ -e "$1" ] || exit 0
+dir=$D/$(date -u +%Y%m%dT%H%M%SZ)
+mkdir -p "$dir" && mv "$@" "$dir"/
+ls -1d "$D"/2*/ | head -n -30 | xargs -r rm -rf

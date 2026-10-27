@@ -1,0 +1,60 @@
+Input: pm8941-pwrkey: warm PS_HOLD reset type from probe with reboot=warm
+
+The PS_HOLD reset type is only programmed from the reboot notifier, which
+an emergency restart (panic) never calls: it then resets with the type the
+boot loader left, on sm6375/PM6125 a hard reset (PS_HOLD_RESET_CTL 0x07)
+that lets DRAM decay and loses the ramoops records of the crash. With
+reboot=warm, program the warm reset type when the device probes as well.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/input/misc/pm8941-pwrkey.c b/drivers/input/misc/pm8941-pwrkey.c
+index 53249d2c0..e06b81717 100644
+--- a/drivers/input/misc/pm8941-pwrkey.c
++++ b/drivers/input/misc/pm8941-pwrkey.c
+@@ -84,11 +84,9 @@ struct pm8941_pwrkey {
+ 	const struct pm8941_data *data;
+ };
+ 
+-static int pm8941_reboot_notify(struct notifier_block *nb,
+-				unsigned long code, void *unused)
++static void pm8941_ps_hold_config(struct pm8941_pwrkey *pwrkey,
++				  unsigned long code)
+ {
+-	struct pm8941_pwrkey *pwrkey = container_of(nb, struct pm8941_pwrkey,
+-						    reboot_notifier);
+ 	unsigned int enable_reg;
+ 	unsigned int reset_type;
+ 	int error;
+@@ -142,6 +140,15 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
+ 				   PON_PS_HOLD_ENABLE);
+ 	if (error)
+ 		dev_err(pwrkey->dev, "unable to re-set enable: %d\n", error);
++}
++
++static int pm8941_reboot_notify(struct notifier_block *nb,
++				unsigned long code, void *unused)
++{
++	struct pm8941_pwrkey *pwrkey = container_of(nb, struct pm8941_pwrkey,
++						    reboot_notifier);
++
++	pm8941_ps_hold_config(pwrkey, code);
+ 
+ 	return NOTIFY_DONE;
+ }
+@@ -401,6 +408,15 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
+ 				error);
+ 			return error;
+ 		}
++
++		/*
++		 * An emergency restart (panic) skips the reboot notifiers and
++		 * resets with the type the boot loader left, usually a hard
++		 * reset that loses RAM contents such as ramoops: with
++		 * reboot=warm, program the warm reset type now as well.
++		 */
++		if (reboot_mode == REBOOT_WARM)
++			pm8941_ps_hold_config(pwrkey, SYS_RESTART);
+ 	}
+ 
+ 	wakeup = pwrkey->data->wakeup_source_default ||
