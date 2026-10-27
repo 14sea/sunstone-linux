@@ -464,7 +464,9 @@
       1.8 V UHS-I）+ 插卡檢測 GPIO94 高有效，和原廠、Sony pdx225 一樣。GPIO94 跟的是卡托不是卡：只有 SIM 時也是高
       （核心試一次，沒有卡應答，不報錯），拔卡托時跳變。實測 SanDisk 64 GB SDXC：UHS-I SDR104 202 MHz、1.8 V 信號；
       重新分區成 GPT 一個 ext4（標籤 `sdcard`），寫 28 MB/s（direct，2 GiB）、讀 69–74 MiB/s，1 GiB 隨機數據丟緩存後
-      sha256 一致，內核無 mmc 錯誤。沒有開機自動掛載（要的話在 fstab 加 `LABEL=sdcard ... nofail`）。
+      sha256 一致，內核無 mmc 錯誤。開機自動掛載（2026-10-27）：fstab `LABEL=sdcard /srv/sd ext4 rw,noatime,nofail,
+      x-systemd.device-timeout=10s 0 2`（build-rootfs.sh 也寫）；有卡時開機即掛，沒有這個標籤的卡時不報錯、不拖慢開機
+      （改標籤模擬：multi-user 7.9 s，有卡 6.0 s）。
       注意：Ubuntu 26.04 的 dd 是 uutils 0.10.0，`iflag=direct` 讀文件報 `IO error: Invalid input`（不是內核問題）。
 - [ ] 熱插拔卡托（SIM 和 SD 在同一個卡托）後 modem 沒有主 GW provisioning 會話：UIM 報 USIM `detected`，ModemManager 反覆建
       modem 又以 `sim-missing` 失敗，重啟 MM 也一樣。手動 `qmicli -d qrtr://0 --uim-change-provisioning-session=

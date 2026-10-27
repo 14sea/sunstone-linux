@@ -115,6 +115,8 @@ cat > "$R/etc/hosts" <<'EOF'
 EOF
 # x-systemd.growfs: the image is smaller than userdata, systemd grows the root at the first boot
 echo 'PARTLABEL=userdata  /  ext4  rw,relatime,x-systemd.growfs  0 1' > "$R/etc/fstab"
+# the microSD card, if one labelled sdcard is in (ext4); nofail: boot does not wait for it
+echo 'LABEL=sdcard  /srv/sd  ext4  rw,noatime,nofail,x-systemd.device-timeout=10s  0 2' >> "$R/etc/fstab"
 ln -sf "/usr/share/zoneinfo/$TZ" "$R/etc/localtime"
 echo "$TZ" > "$R/etc/timezone"
 # C.UTF-8 needs no locales package; pam_env reads this on every login
