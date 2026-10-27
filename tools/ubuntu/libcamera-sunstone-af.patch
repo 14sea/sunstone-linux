@@ -1,12 +1,15 @@
-From ef12a31dc0409110b870341f1074011683708acd Mon Sep 17 00:00:00 2001
+From fa3cc440ec32de106df9a1e180ca8134ee3ee34e Mon Sep 17 00:00:00 2001
 From: 14sea <14sea@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 15:42:26 +0000
 Subject: [PATCH] software_isp, ipa: simple: contrast detection autofocus
 
 Sharpness statistics (squared differences of same-colour neighbours in the
-centre ninth) from SwStatsCpu, an Af algorithm in the simple IPA that scans
-the focus lens coarse then fine and rescans on scene changes (continuous by
-default), and the simple pipeline moving the sensor's focus lens.
+centre ninth) from SwStatsCpu, an Af algorithm in the simple IPA and the
+simple pipeline moving the sensor's focus lens. Scans (coarse, then fine
+with a parabola fit) start on a still, well exposed scene, are abandoned
+when the camera moves and are verified afterwards; continuous by default.
+software_isp.focus: fixed (LIBCAMERA_SOFTISP_FOCUS) holds the lens at the
+tuning's fixedPosition instead. ov48b2q.yaml tunes it for the DW9800.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
