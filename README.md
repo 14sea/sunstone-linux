@@ -29,7 +29,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Other | vibration motor, IR transmitter |
 | Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C; battery zone on the gauge's NTC capping the charge current (1 A from 45 C, stopped from 55 C: 0038); PM6125 die alarm at downstream's 95/115/145 C |
 | Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, pstore (console, oops/panic records) kept across resets by resetting warm through PS_HOLD (0029), a directory per boot in `/var/lib/systemd/pstore`, QRTR HELLO fix (0010) for the modem's init stall; audio and sensors come back after an ADSP restart |
-| Not working | earpiece, voice calls, SMS (untested), fingerprint; no NFC chip in this unit; hardware RNG and crypto engine left out (see `TODO.md`) |
+| Not working | earpiece, voice calls, SMS (untested), fingerprint; hardware video codec (Venus probes with 0039-0041, but with the phone's firmware 6.0.52 the decoder corrupts frames after about 20 and encoding hangs the SoC: disabled in the DTS); no NFC chip in this unit; hardware RNG and crypto engine left out (see `TODO.md`) |
 
 | Software | |
 | --- | --- |

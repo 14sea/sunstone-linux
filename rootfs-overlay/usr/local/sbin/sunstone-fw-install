@@ -1,8 +1,9 @@
 #!/bin/sh
 # sunstone: put the vendor firmware Linux needs where it looks for it, read-only from the phone's
 # own partitions (nothing vendor-made is in the sunstone-linux repo):
-#  - modem_a (vfat, mounted read-only): modem.mdt/.bNN, adsp.mdt/.bNN, cdsp.mdt/.bNN, modem_pr, the pd-mapper jsn files,
-#    wlanmdsp.mbn and the WLAN board files -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
+#  - modem_a (vfat, mounted read-only): modem.mdt/.bNN, adsp.mdt/.bNN, cdsp.mdt/.bNN, venus.mdt/.bNN,
+#    modem_pr, the pd-mapper jsn files, wlanmdsp.mbn and the WLAN board files
+#    -> /lib/firmware/qcom/sm4375/xiaomi/sunstone/
 #  - the WLAN board data: ath10k's board-2.bin plus an entry for the DT's calibration variant
 #    (xiaomi_sunstone) made from bdwlan.$WLAN_BDF (default sung, Xiaomi's data for the markets
 #    outside China; sunc = bdwlan.bin is the Chinese one) -> /lib/firmware/updates/ath10k/...
@@ -44,6 +45,7 @@ mount -o ro /dev/disk/by-partlabel/modem_a "$MNT"
 mkdir -p "$FW"
 cp "$MNT"/image/modem.mdt "$MNT"/image/modem.b* "$MNT"/image/adsp.mdt "$MNT"/image/adsp.b* \
 	"$MNT"/image/cdsp.mdt "$MNT"/image/cdsp.b* \
+	"$MNT"/image/venus.mdt "$MNT"/image/venus.b* \
 	"$MNT"/image/*.jsn "$MNT"/image/wlanmdsp.mbn \
 	"$MNT"/image/bdwlan* "$FW"/
 cp -r "$MNT"/image/modem_pr "$FW"/

@@ -1,0 +1,70 @@
+media: venus: add SM6375
+
+SM6375 (holi) has QCM2290's AR50 Lite video core: the same clocks,
+power domains, bandwidth tables and IOMMU address pools (downstream
+qcom,holi-vidc). Its firmware is VIDEO.VE.6.0 as well, but the Xiaomi
+Redmi Note 12 5G ships 6.0.52, below QCM2290's minimum of 6.0.55, so
+give it its own resources with that minimum. Keep it outside the IRIS
+condition: the iris driver does not handle AR50 Lite.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/platform/qcom/venus/core.c b/drivers/media/platform/qcom/venus/core.c
+index 243e342b0..3e783176b 100644
+--- a/drivers/media/platform/qcom/venus/core.c
++++ b/drivers/media/platform/qcom/venus/core.c
+@@ -1170,6 +1170,46 @@ static const struct venus_resources qcm2290_res = {
+ 	.min_fw = &min_fw,
+ };
+ 
++/*
++ * SM6375 has QCM2290's AR50 Lite core (same clocks, power domains and IOMMU layout); its
++ * firmware is VIDEO.VE.6.0 too, but the phones ship 6.0.52 (Xiaomi Redmi Note 12 5G).
++ */
++static const struct firmware_version sm6375_min_fw = {
++	.major = 6, .minor = 0, .rev = 52,
++};
++
++static const struct venus_resources sm6375_res = {
++	.bw_tbl_dec = qcm2290_bw_table_dec,
++	.bw_tbl_dec_size = ARRAY_SIZE(qcm2290_bw_table_dec),
++	.bw_tbl_enc = qcm2290_bw_table_enc,
++	.bw_tbl_enc_size = ARRAY_SIZE(qcm2290_bw_table_enc),
++	.clks = { "core", "iface", "bus", "throttle" },
++	.clks_num = 4,
++	.vcodec0_clks = { "vcodec0_core", "vcodec0_bus" },
++	.vcodec_clks_num = 2,
++	.vcodec_pmdomains = (const char *[]) { "venus", "vcodec0" },
++	.vcodec_pmdomains_num = 2,
++	.opp_pmdomain = (const char *[]) { "cx" },
++	.opp_pmdomain_num = 1,
++	.vcodec_num = 1,
++	.hfi_version = HFI_VERSION_4XX,
++	.vpu_version = VPU_VERSION_AR50_LITE,
++	.max_load = 352800,
++	.num_vpp_pipes = 1,
++	.vmem_id = VIDC_RESOURCE_NONE,
++	.vmem_size = 0,
++	.vmem_addr = 0,
++	.cp_start = 0,
++	.cp_size = 0x70800000,
++	.cp_nonpixel_start = 0x1000000,
++	.cp_nonpixel_size = 0x24800000,
++	.dma_mask = 0xe0000000 - 1,
++	.fwname = "qcom/venus-6.0/venus.mbn",
++	.dec_nodename = "video-decoder",
++	.enc_nodename = "video-encoder",
++	.min_fw = &sm6375_min_fw,
++};
++
+ static const struct of_device_id venus_dt_match[] = {
+ 	{ .compatible = "qcom,msm8916-venus", .data = &msm8916_res, },
+ 	{ .compatible = "qcom,msm8939-venus", .data = &msm8939_res, },
+@@ -1180,6 +1220,7 @@ static const struct of_device_id venus_dt_match[] = {
+ 	{ .compatible = "qcom,sdm660-venus", .data = &sdm660_res, },
+ 	{ .compatible = "qcom,sdm845-venus", .data = &sdm845_res, },
+ 	{ .compatible = "qcom,sdm845-venus-v2", .data = &sdm845_res_v2, },
++	{ .compatible = "qcom,sm6375-venus", .data = &sm6375_res, },
+ #if (!IS_ENABLED(CONFIG_VIDEO_QCOM_IRIS))
+ 	{ .compatible = "qcom,sc7280-venus", .data = &sc7280_res, },
+ 	{ .compatible = "qcom,sm8250-venus", .data = &sm8250_res, },

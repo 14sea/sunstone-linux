@@ -1,0 +1,28 @@
+clk: qcom: clk-alpha-pll: set the FSM legacy mode of Trion/Lucid PLLs
+
+SUPPORTS_FSM_LEGACY_MODE is only acted on by clk_fabia_pll_configure(),
+but gcc-sm6375 marks its Lucid PLLs GPLL8, GPLL10 and GPLL11 with it,
+and clk_trion_pll_configure() (clk_lucid_pll_configure()) ignores the
+flag. The vendor kernel's Lucid configure sets PLL_FSM_LEGACY_MODE for
+it. Without the bit GPLL11 never locks on SM4375 (Xiaomi Redmi Note 12
+5G): "gpll11 failed to enable!" when Venus enables its clocks.
+
+Set the bit in the Trion/Lucid configure as the Fabia one does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/clk/qcom/clk-alpha-pll.c b/drivers/clk/qcom/clk-alpha-pll.c
+index f8313f9d0..0dbf59067 100644
+--- a/drivers/clk/qcom/clk-alpha-pll.c
++++ b/drivers/clk/qcom/clk-alpha-pll.c
+@@ -1746,6 +1746,10 @@ void clk_trion_pll_configure(struct clk_alpha_pll *pll, struct regmap *regmap,
+ 	clk_alpha_pll_write_config(regmap, PLL_TEST_CTL_U1(pll),
+ 					config->test_ctl_hi1_val);
+ 
++	if (pll->flags & SUPPORTS_FSM_LEGACY_MODE)
++		regmap_update_bits(regmap, PLL_MODE(pll), PLL_FSM_LEGACY_MODE,
++				   PLL_FSM_LEGACY_MODE);
++
+ 	regmap_update_bits(regmap, PLL_MODE(pll), PLL_UPDATE_BYPASS,
+ 			   PLL_UPDATE_BYPASS);
+ 

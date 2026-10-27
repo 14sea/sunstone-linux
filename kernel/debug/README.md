@@ -71,3 +71,14 @@ Low-power investigation (2026-10-27, `TODO.md` under suspend), built like `ramoo
 - `rpm-sleep-vote`: an experiment, not a fix: sends 0 in the APSS's RPM sleep set for the bus clocks
   no interconnect driver manages on SM6375 (and with `misc=1` for the RPM clocks that
   clk_ignore_unused leaves at their hand-off vote); unloading sends the hand-off values back.
+
+## `mmio-peek/`, `mmio-poke/`
+
+Single registers by physical address (2026-10-27, the Venus/GPLL11 work), built like `ramoops-peek`:
+
+- `mmio-peek phys=0x... count=N`: N 32-bit registers at `/sys/kernel/debug/mmio-peek`, read-only.
+- `mmio-poke phys=0x... mask=0x... val=0x...`: one read-modify-write at load time, old and new value in
+  the kernel log; insmod then fails with -EAGAIN on purpose (nothing stays loaded).
+
+Only for blocks that are always powered (GCC's PLLs and GDSC registers). **Reading the whole GCC regmap
+in debugfs (`/sys/kernel/debug/regmap/1400000.clock-controller/registers`) resets the SoC.**

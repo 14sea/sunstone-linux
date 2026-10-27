@@ -512,8 +512,16 @@
       `sunstone-adsp.service` 現在也啟動 CDSP。驗證：`remote processor cdsp is now up`、QRTR node 10 的 5 個服務、
       `/dev/fastrpc-cdsp` 上 `FASTRPC_IOCTL_INIT_ATTACH` 返回 0；重啟後自動起來；CDSP 運行時 pm_test platform 和 RTC 喚醒的
       s2idle 正常，醒後仍 running。RPM vlow 的 Client Votes 0x7030703 → 0xb030703（多了 CDSP 的一票）。還沒有用戶態程序用它。
-- [ ] Venus 視頻編解碼（同上發現）：原廠 `qcom,venus@5ab0000`（pil-tz-generic），完全沒做，沒有硬件編解碼。主線 venus 有
-      `qcom,qcm2290-venus`（AR50 Lite），holi 的是不是同一代沒查；對服務器用處不大。
+- [ ] **Venus 視頻編解碼**（2026-10-27 做了一半，boot-187–190，DT 裡先關着）：holi 的視頻核心是 qcm2290 的 AR50 Lite
+      （同樣六個時鐘、SPI 225、VENUS + VCODEC0 GDSC），SMMU 流 0xc60/0xc80，固件 modem_a 的 `VIDEO.VE.6.0-00052`
+      （sunstone-fw-install 拷貝）。本地補丁 0039（`qcom,sm6375-venus`，最低固件 6.0.52；qcm2290 要 6.0.55）、
+      0040（**主線 bug**：lucid/trion 的 configure 不管 `SUPPORTS_FSM_LEGACY_MODE`，GPLL11 鎖不上）、0041（VCODEC0 GDSC
+      `HW_CTRL_TRIGGER`，同原廠的 support-hw-trigger）。現在：固件啟動、解碼器/編碼器註冊。**解碼**：前約 20 幀和
+      ffmpeg 逐字節一致，之後每幀混入後面幾幀的行（硬件在 DQBUF 之後還寫這個緩衝區；和緩衝區數、參考幀、IDR 無關）；
+      **編碼**：一開流 SoC 就掛死（看門狗復位，無 oops；帶寬、CX、NRT TBU 都排除了）。很可能就是主線要 6.0.55 的原因
+      （這台手機只有 OEM 簽名的 6.0.52，換不了固件）。要繼續的話：對照下游 msm_vidc 的 AR50 Lite 路徑（5.4 的
+      techpack/video 不在小米的倉庫裡，要從 CLO 找）看緩衝區釋放（release buffer reference）和編碼會話的 HFI 屬性。
+      對服務器用處不大。
 - [ ] 電荷泵快充（同上發現）：原廠 i2c10（我們的 i2c-2）上有 `lionsemi,ln8000@51` 和 `sc,sc8551-standalone@66` 兩個候選，
       **本機焊的是 SC8551**（2026-10-27 `i2cdetect -r` 只讀探測：0x66 應答，0x51 沒有）；沒建設備。要先開 PD（見 OTG 剩下的）
       才有意義；永久接電的服務器不需要。

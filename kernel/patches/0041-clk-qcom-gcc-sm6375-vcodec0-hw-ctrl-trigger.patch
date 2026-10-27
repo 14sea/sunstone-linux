@@ -1,0 +1,25 @@
+clk: qcom: gcc-sm6375: let Venus switch the VCODEC0 GDSC to HW control
+
+The vendor DT marks the VCODEC0 GDSC qcom,support-hw-trigger: the video
+driver hands it to the hardware while the core runs. With HW_CTRL it is
+in hardware mode from the start and dev_pm_genpd_set_hwmode() is not
+supported, so Venus falls back to the WRAPPER_VCODEC0_MMCC_POWER_*
+registers, which the AR50 Lite core does not have; on SM4375 (Xiaomi
+Redmi Note 12 5G) the first encode session then hung the SoC. Use
+HW_CTRL_TRIGGER as QCM2290 and SM6115 do for the same core.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/clk/qcom/gcc-sm6375.c b/drivers/clk/qcom/gcc-sm6375.c
+index f47dc2808..f4acd2044 100644
+--- a/drivers/clk/qcom/gcc-sm6375.c
++++ b/drivers/clk/qcom/gcc-sm6375.c
+@@ -3569,7 +3569,7 @@ static struct gdsc vcodec0_gdsc = {
+ 		.name = "vcodec0_gdsc",
+ 	},
+ 	.pwrsts = PWRSTS_OFF_ON,
+-	.flags = HW_CTRL,
++	.flags = HW_CTRL_TRIGGER,
+ };
+ 
+ static struct gdsc hlos1_vote_mm_snoc_mmu_tbu_rt_gdsc = {
