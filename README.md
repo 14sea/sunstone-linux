@@ -27,7 +27,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | DSPs | ADSP (audio, sensors), CDSP (Turing) with FastRPC (nothing uses it yet); fastrpc resumes an interrupted invoke instead of sending it again (0033) |
 | Power | s2idle with RTC and power-key wake (0032, 0033), automatic suspend left off for the server; bus scaling through the SM6375 NoC driver (0036: BIMC/CNOC/SNOC, CPU DDR floors per OPP and the CPU BWMON, votes from display, GPU, cameras, UFS, SD, USB, IPA, QUP); runtime PM fixes for gpucc (0034), UFS lane clocks (0035), wcd937x RX clocks (0030), q6afe clock votes (0031); the SoC does not reach XO shutdown / VDD minimization yet (`TODO.md`) |
 | Other | vibration motor, IR transmitter |
-| Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C |
+| Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C; battery zone on the gauge's NTC capping the charge current (1 A from 45 C, stopped from 55 C: 0038); PM6125 die alarm at downstream's 95/115/145 C |
 | Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, pstore (console, oops/panic records) kept across resets by resetting warm through PS_HOLD (0029), a directory per boot in `/var/lib/systemd/pstore`, QRTR HELLO fix (0010) for the modem's init stall; audio and sensors come back after an ADSP restart |
 | Not working | earpiece, voice calls, SMS (untested), fingerprint; no NFC chip in this unit; hardware RNG and crypto engine left out (see `TODO.md`) |
 

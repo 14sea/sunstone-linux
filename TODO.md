@@ -491,7 +491,16 @@
       不對），不列。溫區：`quiet-thermal`（下游的皮膚傳感器）55 °C 被動（cpu0、cpu6、GPU，1 s 輪詢）、80 °C 關機，模擬 60 °C
       時三者各降一檔、清除後恢復；`xo`、`pa-therm1/2`、`msm`、`cam-flash` 只有 125 °C 的 critical（下游的 step 區都是
       disabled，Xiaomi 用戶態限頻；這裡沒有 modem PA 的冷卻設備）。空閒充電時都在 27–30 °C。健康日誌加了 `skin=`、`xo=`。
-- [ ] 熱管理的剩餘部分：電池溫區（sm5602）沒有觸發點，充電靠充電器的 JEITA（TS 腳）；PM6125 溫度報警的閾值。
+- [x] **熱管理的剩餘部分**（2026-10-27，boot-186）：
+      - 電池：充電器 TS 腳讀約 40 °C 而電池 22 °C，**TS 不在電池 NTC 上，充電器的硬件 JEITA 看不到電池**；原廠由
+        charger-manager（`qcom,wt_chg`）在軟件裡限。本地補丁 0038：sm5602 的電池溫度作 DT 溫度傳感器，bq25890 作 DT
+        冷卻設備（不限 / 1 A / 500 mA / ICHG 0 停充）；`battery-thermal`：45 °C 起 1 A（溫度還在升再降到 500 mA），
+        55 °C 停充，70 °C 關機。`emul_temp` 驗證了寄存器（LOG boot-186）。
+      - PM6125 溫度報警：驅動按 critical 觸發點選閾值組，pm6125.dtsi 的 145 °C 讓第一級中斷在 105 °C，95 °C 的被動觸發點
+        形同虛設；改成原廠的 critical 115 °C → 95/115/145 °C，第一級中斷正好在被動觸發點，限 cpu6（同原廠）。
+      - 剩下：停充的實際電流沒看到（電池滿着，CV 被 DT 限在 4.1 V），下次電池真的充電時用 `emul_temp` 60 °C 看
+        `current_now` 是否歸零；0 °C 以下停充（熱框架不管低溫，室內服務器用不到）；PMR735A 溫區沒有冷卻設備（原廠是
+        modem 的 QMI 冷卻）。
 - [x] QRNG（2026-10-27 查過，不做）：下游 `qcom,msm-rng`@0x4453000（`qcom,no-qrng-config`）。7.3 的 qcom-rng 只把
       `qcom,trng` 註冊成 hwrng，`qcom,prng`/`prng-ee` 只綁定、什麼都不做；同地址的 agatti 在主線是 prng-ee，沒有資料說 holi
       的是 TRNG，不能硬寫成 trng 給它記滿熵。內核不缺熵（沒有硬件 RNG 時 `crng init done` 在 4.1 s），CPU 有 AES/SHA 指令，

@@ -1,0 +1,232 @@
+power: supply: sm5602, bq25890: battery temperature as a thermal zone cooling the charger
+
+On the Xiaomi Redmi Note 12 5G the charger's TS pin is not on the
+battery NTC (it reads about 40 C with the battery at 22 C), so its
+JEITA never sees the battery. The vendor kernel limited charging from
+the gauge's battery temperature in its charger manager.
+
+Let the SM5602 gauge register its battery temperature as a DT thermal
+sensor, and the BQ25890 register a DT cooling device whose states cap
+the charge current (no cap, 1 A, 500 mA, 0 = charging stopped). A
+thermal zone on the battery then steps the charger down. A charge
+current set through the power supply is kept and capped, not replaced.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index a103c6e4e..92a6d3376 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -11,6 +11,7 @@
+ #include <linux/power/bq25890_charger.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/driver.h>
++#include <linux/thermal.h>
+ #include <linux/types.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/interrupt.h>
+@@ -127,6 +128,8 @@ struct bq25890_device {
+ 	bool read_back_init_data;
+ 	bool force_hiz;
+ 	bool otg_needs_chg_off;
++	int ichg_req;			/* charge current asked for, uA */
++	unsigned long cooling_state;	/* index into bq25890_cooling_ichg */
+ 	u32 pump_express_vbus_max;
+ 	u32 iinlim_percentage;
+ 	enum bq25890_chip_version chip_version;
+@@ -684,6 +687,19 @@ static int bq25890_power_supply_get_property(struct power_supply *psy,
+ 	return 0;
+ }
+ 
++/*
++ * Thermal cooling states: caps on the charge current in uA, the last one stops charging (ICHG 0
++ * disables it). A DT thermal zone on the battery temperature steps through them.
++ */
++static const int bq25890_cooling_ichg[] = { INT_MAX, 1000000, 500000, 0 };
++
++static int bq25890_apply_ichg(struct bq25890_device *bq)
++{
++	int ua = min(bq->ichg_req, bq25890_cooling_ichg[bq->cooling_state]);
++
++	return bq25890_field_write(bq, F_ICHG, bq25890_find_idx(ua, TBL_ICHG));
++}
++
+ static int bq25890_power_supply_set_property(struct power_supply *psy,
+ 					     enum power_supply_property psp,
+ 					     const union power_supply_propval *val)
+@@ -696,8 +712,11 @@ static int bq25890_power_supply_set_property(struct power_supply *psy,
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+ 		maxval = bq25890_find_val(bq->init_data.ichg, TBL_ICHG);
+-		lval = bq25890_find_idx(min(val->intval, maxval), TBL_ICHG);
+-		return bq25890_field_write(bq, F_ICHG, lval);
++		mutex_lock(&bq->lock);
++		bq->ichg_req = min(val->intval, maxval);
++		ret = bq25890_apply_ichg(bq);
++		mutex_unlock(&bq->lock);
++		return ret;
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+ 		maxval = bq25890_find_val(bq->init_data.vreg, TBL_VREG);
+ 		lval = bq25890_find_idx(min(val->intval, maxval), TBL_VREG);
+@@ -1487,6 +1506,44 @@ static void bq25890_non_devm_cleanup(void *data)
+ 	}
+ }
+ 
++static int bq25890_get_max_state(struct thermal_cooling_device *cdev, unsigned long *state)
++{
++	*state = ARRAY_SIZE(bq25890_cooling_ichg) - 1;
++	return 0;
++}
++
++static int bq25890_get_cur_state(struct thermal_cooling_device *cdev, unsigned long *state)
++{
++	struct bq25890_device *bq = cdev->devdata;
++
++	*state = bq->cooling_state;
++	return 0;
++}
++
++static int bq25890_set_cur_state(struct thermal_cooling_device *cdev, unsigned long state)
++{
++	struct bq25890_device *bq = cdev->devdata;
++	int ret;
++
++	if (state >= ARRAY_SIZE(bq25890_cooling_ichg))
++		return -EINVAL;
++
++	mutex_lock(&bq->lock);
++	bq->cooling_state = state;
++	ret = bq25890_apply_ichg(bq);
++	if (!ret)
++		dev_info(bq->dev, "thermal state %lu: charge current %d mA\n", state,
++			 min(bq->ichg_req, bq25890_cooling_ichg[state]) / 1000);
++	mutex_unlock(&bq->lock);
++	return ret;
++}
++
++static const struct thermal_cooling_device_ops bq25890_cooling_ops = {
++	.get_max_state = bq25890_get_max_state,
++	.get_cur_state = bq25890_get_cur_state,
++	.set_cur_state = bq25890_set_cur_state,
++};
++
+ static int bq25890_probe(struct i2c_client *client)
+ {
+ 	struct device *dev = &client->dev;
+@@ -1559,6 +1616,16 @@ static int bq25890_probe(struct i2c_client *client)
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret, "registering power supply\n");
+ 
++	bq->ichg_req = bq25890_find_val(bq->init_data.ichg, TBL_ICHG);
++	if (IS_ENABLED(CONFIG_THERMAL_OF) && device_property_present(dev, "#cooling-cells")) {
++		struct thermal_cooling_device *cdev;
++
++		cdev = devm_thermal_of_cooling_device_register(dev, dev_of_node(dev), bq->name,
++							       bq, &bq25890_cooling_ops);
++		if (IS_ERR(cdev))
++			return dev_err_probe(dev, PTR_ERR(cdev), "registering cooling device\n");
++	}
++
+ 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
+ 					bq25890_irq_handler_thread,
+ 					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+diff --git a/drivers/power/supply/sm5602_fuel_gauge.c b/drivers/power/supply/sm5602_fuel_gauge.c
+index cdf0f1cba..26bdadda5 100644
+--- a/drivers/power/supply/sm5602_fuel_gauge.c
++++ b/drivers/power/supply/sm5602_fuel_gauge.c
+@@ -13,6 +13,7 @@
+ #include <linux/mod_devicetable.h>
+ #include <linux/power_supply.h>
+ #include <linux/property.h>
++#include <linux/thermal.h>
+ 
+ #define SM5602_REG_DEVICE_ID	0x00
+ #define SM5602_REG_SOC		0x05
+@@ -66,6 +67,25 @@ static int sm5602_temp_ex(struct sm5602 *sm, u16 raw)
+ 	return 25;
+ }
+ 
++/* battery (or, without a thermal table, gauge) temperature in tenths of a degree C */
++static int sm5602_temp_decic(struct sm5602 *sm, int *decic)
++{
++	int raw;
++
++	if (sm->have_table) {
++		raw = sm5602_read(sm, SM5602_REG_TEMP_EX);
++		if (raw < 0)
++			return raw;
++		*decic = sm5602_temp_ex(sm, raw) * 10;
++	} else {
++		raw = sm5602_read(sm, SM5602_REG_TEMP_IN);
++		if (raw < 0)
++			return raw;
++		*decic = (raw & SM5602_SIGN ? -1 : 1) * (raw & 0xff) * 10;
++	}
++	return 0;
++}
++
+ static int sm5602_current_ua(struct sm5602 *sm, u16 raw)
+ {
+ 	/* 1000/4088 mA per LSB at 10 mOhm; code 0 means the 5 mOhm default */
+@@ -149,18 +169,7 @@ static int sm5602_get_property(struct power_supply *psy, enum power_supply_prope
+ 		val->intval = sm5602_current_ua(sm, raw);
+ 		return 0;
+ 	case POWER_SUPPLY_PROP_TEMP:
+-		if (sm->have_table) {
+-			raw = sm5602_read(sm, SM5602_REG_TEMP_EX);
+-			if (raw < 0)
+-				return raw;
+-			val->intval = sm5602_temp_ex(sm, raw) * 10;
+-		} else {
+-			raw = sm5602_read(sm, SM5602_REG_TEMP_IN);
+-			if (raw < 0)
+-				return raw;
+-			val->intval = (raw & SM5602_SIGN ? -1 : 1) * (raw & 0xff) * 10;
+-		}
+-		return 0;
++		return sm5602_temp_decic(sm, &val->intval);
+ 	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+ 		raw = sm5602_read(sm, SM5602_REG_CYCLE);
+ 		if (raw < 0)
+@@ -194,6 +203,21 @@ static const enum power_supply_property sm5602_props[] = {
+ 	POWER_SUPPLY_PROP_CHARGE_NOW,
+ };
+ 
++static int sm5602_tz_get_temp(struct thermal_zone_device *tz, int *temp)
++{
++	int decic, ret;
++
++	ret = sm5602_temp_decic(thermal_zone_device_priv(tz), &decic);
++	if (ret)
++		return ret;
++	*temp = decic * 100;
++	return 0;
++}
++
++static const struct thermal_zone_device_ops sm5602_tz_ops = {
++	.get_temp = sm5602_tz_get_temp,
++};
++
+ static const struct power_supply_desc sm5602_desc = {
+ 	.name = "sm5602-battery",
+ 	.type = POWER_SUPPLY_TYPE_BATTERY,
+@@ -206,6 +230,7 @@ static int sm5602_probe(struct i2c_client *client)
+ {
+ 	struct device *dev = &client->dev;
+ 	struct power_supply_config cfg = {};
++	struct thermal_zone_device *tz;
+ 	struct sm5602 *sm;
+ 	u32 table[SM5602_TABLE_LEN];
+ 	int id, i;
+@@ -233,6 +258,11 @@ static int sm5602_probe(struct i2c_client *client)
+ 	if (IS_ERR(sm->psy))
+ 		return dev_err_probe(dev, PTR_ERR(sm->psy), "cannot register the battery\n");
+ 
++	/* the battery temperature as a sensor for a DT thermal zone (its trips cool the charger) */
++	tz = devm_thermal_of_zone_register(dev, 0, sm, &sm5602_tz_ops);
++	if (IS_ERR(tz) && PTR_ERR(tz) != -ENODEV)
++		return dev_err_probe(dev, PTR_ERR(tz), "cannot register the thermal sensor\n");
++
+ 	dev_info(dev, "SM5602 gauge, device id %#06x, %s temperature\n", id,
+ 		 sm->have_table ? "battery NTC" : "internal");
+ 	return 0;

@@ -1135,6 +1135,8 @@
 		ti,boost-voltage = <5000000>;
 		ti,boost-max-current = <1650000>;
 		ti,thermal-regulation-threshold = <120>;
+		/* cooling states for battery-thermal: no cap, 1 A, 500 mA, charging stopped */
+		#cooling-cells = <2>;
 
 		/* the boost (OTG_CONFIG) as VBUS for the Type-C source role, switched by the HUSB311's TCPM */
 		usb_otg_vbus: usb-otg-vbus {
@@ -1142,9 +1144,10 @@
 		};
 	};
 
-	fuel-gauge@71 {
+	fuel_gauge: fuel-gauge@71 {
 		compatible = "siliconmitus,sm5602";
 		reg = <0x71>;
+		#thermal-sensor-cells = <0>;
 		power-supplies = <&charger>;
 		/* battery NTC reading for -20..80 C (downstream battery0,thermal_table) */
 		siliconmitus,thermal-table = <
@@ -2980,6 +2983,75 @@
 					temperature = <125000>;
 					hysteresis = <1000>;
 					type = "critical";
+				};
+			};
+		};
+
+		/*
+		 * Battery temperature (the gauge's NTC reading). The charger's own JEITA does not help:
+		 * its TS pin reads about 40 C with the battery at 22 C, so it is not on the battery NTC.
+		 * Downstream's charger-manager limited charging in software; here the charger is the
+		 * cooling device: 1 A, then 500 mA from 45 C, charging stopped from 55 C, power off at 70 C.
+		 */
+		battery-thermal {
+			polling-delay-passive = <10000>;
+			polling-delay = <30000>;
+			thermal-sensors = <&fuel_gauge>;
+
+			trips {
+				batt_warm: trip-point0 {
+					temperature = <45000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				batt_hot: trip-point1 {
+					temperature = <55000>;
+					hysteresis = <3000>;
+					type = "passive";
+				};
+
+				trip-point2 {
+					temperature = <70000>;
+					hysteresis = <0>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&batt_warm>;
+					cooling-device = <&charger 0 2>;
+				};
+
+				map1 {
+					trip = <&batt_hot>;
+					cooling-device = <&charger 3 3>;
+				};
+			};
+		};
+
+		/*
+		 * PM6125 die temperature (GEN2 v1 alarm). The temp-alarm driver picks its threshold set from
+		 * the critical trip: pm6125.dtsi's 145 C gave stages at 105/125/155 C, so the 95 C passive
+		 * trip only woke up at 105 C. Downstream's 115 C critical gives 95/115/145 C: the first
+		 * stage interrupt then comes at the passive trip, which limits the big cores as downstream.
+		 */
+		pm6125-thermal {
+			trips {
+				pm6125_alert0: trip0 {
+				};
+
+				trip1 {
+					temperature = <115000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&pm6125_alert0>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
