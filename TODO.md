@@ -506,10 +506,27 @@
 - [ ] Venus 視頻編解碼（同上發現）：原廠 `qcom,venus@5ab0000`（pil-tz-generic），完全沒做，沒有硬件編解碼。主線 venus 有
       `qcom,qcm2290-venus`（AR50 Lite），holi 的是不是同一代沒查；對服務器用處不大。
 - [ ] 電荷泵快充（同上發現）：原廠 i2c10（我們的 i2c-2）上有 `lionsemi,ln8000@51` 和 `sc,sc8551-standalone@66` 兩個候選，
-      大概只焊一顆；都沒建設備。要先開 PD（見 OTG 剩下的）才有意義；永久接電的服務器不需要。
+      **本機焊的是 SC8551**（2026-10-27 `i2cdetect -r` 只讀探測：0x66 應答，0x51 沒有）；沒建設備。要先開 PD（見 OTG 剩下的）
+      才有意義；永久接電的服務器不需要。
+- [x] 原廠 DT 裡有、本機沒焊的芯片（2026-10-27 對照原廠 live DT，i2c-2 只讀探測）：AW2016 呼吸燈（0x64）、PM8008 攝像頭
+      PMIC（0x08/0x09，本機用 WL2866D）、WSA881x 功放（0x44，本機用 SIA8159）、LN8000 電荷泵（0x51）；NFC（st21nfc）也沒有。
+      不做的：電池認證 DS28E16（one-wire）、EUD、coresight/DCC/TGU 等調試硬件、調試 UART（0x4c8c000）、
+      modem 側的 QMI 冷卻設備和遠端溫度傳感器（`qmi-cooling-devices`、`qmi-sensors`）。
+- [ ] UFS 內聯加密（ICE，`hwkm@4440000`）：`qcom-ice` 驅動已註冊，UFS 塊設備沒有 `queue/crypto`（沒接上）；只有用 fscrypt
+      或 dm-default-key 才用得到，不急。
+- [ ] ModemManager 每隔幾分鐘探測 `usb0`（gadget 的 NCM 網口），報 `Missing port probe for port (net/usb0)`：無害，
+      加一條 udev 規則 `ID_MM_DEVICE_IGNORE=1` 就安靜了。
 - [ ] QCE 硬件加密（同上發現）：原廠 `qcom,qcrypto@1b20000`，`/proc/crypto` 沒有 qce；CPU 有 ARMv8 加密指令，影響很小。
-- [ ] CPU→DDR 帶寬調節（同上發現）：原廠有 `qcom,bimc-bwmon4`@4520300 和 memlat/devfreq-icc；我們的 devfreq 只有
-      ufshc、gpu，CPU 的 DDR 投票靠 cpufreq 的 OPP（有沒有 interconnect 投票沒查）。只影響功耗和內存密集的性能。
+- [x] **CPU→DDR 帶寬調節**（2026-10-27，boot-185）：主線沒有 sm6375 的 interconnect 驅動，rpmcc 把 BIMC/CNOC/SNOC/QUP/
+      MMRT/MMNRT 總線時鐘以 INT_MAX 交出去後一直沒人降。本地補丁 0036：SM6375 NoC 驅動（qcm2290 同樣的 RPM NoC 佈局，
+      節點的位寬/通道/RPM id/鏈接取自小米 `sunstone-u-oss` 內核的 `drivers/interconnect/qcom/holi.c`，總線時鐘和 AB 係數
+      取自原廠 DT；QoS 不寫，沿用引導固件的設置）。DTS 給各消費者加 interconnects（照 agatti）：CPU 第二條路徑按下游
+      compute-mon 的 core-dev-table 投 DDR 底線（只在活動集合），GPU 每檔投下游 bus-table-ddr7 的值，MDSS、UFS、SDHC2、
+      USB、IPA、QUP（core/config/memory）、CAMSS（補丁 0037）。CPU BWMON：下游 `qcom,bimc-bwmon4`@0x4520300、global
+      0x4520200 = sdm845 的佈局（global 寄存器在 monitor 區開頭），主線 `qcom,sdm845-bwmon` 驅動，等級用下游 ddr-bw-opp-table。
+      memlat（按 cache miss 調 DDR）主線沒有，用 CPU OPP 的底線 + BWMON 代替。
+      驗證見 LOG boot-185：吞吐不變，負載時 EBI 投到 DDR 最高檔，空閒時回到 CPU 底線 + 設備的票。
+      沒做的：QoS 寄存器（下游每個端口的 prio/bke）；功耗沒量（插着 USB 時電池電流 0，量不到）；vlow/vmin 仍 0。
 - [x] **日誌刷屏**（2026-10-27 修好，boot-179，內核 `g12b956698469`）：三條都是真問題，不是只把日誌關掉。
       - `ath10k_snoc: chan info: invalid frequency 0 (idx 41 out of bounds)`（18 h 482 次，每次掃描兩條）：這個 WLAN 固件
         （HL.3.3.2）每個信道只發一條 chan info，每個頻段掃完再發一條 freq 0 的完成標記；linux-firmware 的通用 WCN3990

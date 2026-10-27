@@ -12,8 +12,12 @@
  *   port controller on i2c10.
  * - UFS: ufshc@4804000 with one lane and a QMP v4 PHY that downstream drives as
  *   "qcom,ufs-phy-qmp-v4-yupik" (SC7280 tables, kernel/patches/0001 adds the one-lane sm6375
- *   entry). Inline crypto (ICE) is left out. No interconnect driver for sm6375 yet: bus votes stay
- *   as ABL left them.
+ *   entry). Inline crypto (ICE) is left out.
+ * - Interconnects: BIMC, CNOC, SNOC and the virtual QUP/MMRT/MMNRT NoCs (kernel/patches/0036, node
+ *   data from the downstream holi driver, QoS as the boot firmware left it). Before them rpmcc
+ *   handed the bus clocks over at INT_MAX and they stayed there. Consumers vote as on agatti
+ *   (qcm2290, the same NoC layout); the CPU OPPs carry downstream's compute-mon DDR floors and the
+ *   CPU BWMON (holi's bimc-bwmon4, the sdm845 register layout) raises DDR with the traffic.
  * - PMICs as on the downstream DT and Sony's pdx225: PM6125 (SID 0/1), PMK8350 on SID 6, PMR735A.
  *   Keys (downstream gpio-keys and qpnp-power-on): power = PM6125 PON KPDPWR, volume down = PM6125
  *   PON RESIN, volume up = PMR735A GPIO1 (active low) -- the reverse of pdx225's volume keys.
@@ -60,6 +64,7 @@
 #include <dt-bindings/clock/qcom,sm6375-gpucc.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-pmk8350.h>
+#include <dt-bindings/interconnect/qcom,sm6375.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/soc/qcom,apr.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
@@ -345,6 +350,33 @@
 	};
 
 	soc@0 {
+		system_noc: interconnect@1880000 {
+			compatible = "qcom,sm6375-snoc";
+			reg = <0x0 0x01880000 0x0 0x5f080>;
+			#interconnect-cells = <2>;
+
+			clk_virt: interconnect-clk {
+				compatible = "qcom,sm6375-clk-virt";
+				#interconnect-cells = <2>;
+			};
+
+			mmnrt_virt: interconnect-mmnrt {
+				compatible = "qcom,sm6375-mmnrt-virt";
+				#interconnect-cells = <2>;
+			};
+
+			mmrt_virt: interconnect-mmrt {
+				compatible = "qcom,sm6375-mmrt-virt";
+				#interconnect-cells = <2>;
+			};
+		};
+
+		config_noc: interconnect@1900000 {
+			compatible = "qcom,sm6375-cnoc";
+			reg = <0x0 0x01900000 0x0 0x6200>;
+			#interconnect-cells = <2>;
+		};
+
 		qfprom: efuse@1b40000 {
 			compatible = "qcom,sm6375-qfprom", "qcom,qfprom";
 			reg = <0x0 0x01b40000 0x0 0x7000>;
@@ -364,6 +396,43 @@
 			reg = <0x0 0x0440b000 0x0 0x4>;
 		};
 
+		bimc: interconnect@4480000 {
+			compatible = "qcom,sm6375-bimc";
+			reg = <0x0 0x04480000 0x0 0x80000>;
+			#interconnect-cells = <2>;
+		};
+
+		/*
+		 * CPU BWMON: downstream "qcom,bimc-bwmon4" with base 0x4520300 and global 0x4520200, i.e.
+		 * the global IRQ registers at the start of the monitor block as on sdm845. The levels are
+		 * downstream's ddr-bw-opp-table (DDR 200 ... 2092 MHz, in MB/s as downstream votes them).
+		 */
+		pmu@4520300 {
+			compatible = "qcom,sm6375-cpu-bwmon", "qcom,sdm845-bwmon";
+			reg = <0x0 0x04520300 0x0 0x300>;
+			interrupts = <GIC_SPI 421 IRQ_TYPE_LEVEL_HIGH>;
+
+			operating-points-v2 = <&cpu_bwmon_opp_table>;
+			interconnects = <&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG
+					 &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+
+			cpu_bwmon_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-0 { opp-peak-kBps = <762000>; };
+				opp-1 { opp-peak-kBps = <1144000>; };
+				opp-2 { opp-peak-kBps = <1720000>; };
+				opp-3 { opp-peak-kBps = <2086000>; };
+				opp-4 { opp-peak-kBps = <2597000>; };
+				opp-5 { opp-peak-kBps = <2929000>; };
+				opp-6 { opp-peak-kBps = <3879000>; };
+				opp-7 { opp-peak-kBps = <5161000>; };
+				opp-8 { opp-peak-kBps = <5931000>; };
+				opp-9 { opp-peak-kBps = <6881000>; };
+				opp-10 { opp-peak-kBps = <7980000>; };
+			};
+		};
+
 		ufs_mem_hc: ufshc@4804000 {
 			compatible = "qcom,sm6375-ufshc", "qcom,ufshc", "jedec,ufs-2.0";
 			reg = <0x0 0x04804000 0x0 0x3000>;
@@ -379,6 +448,12 @@
 
 			power-domains = <&gcc UFS_PHY_GDSC>;
 			iommus = <&apps_smmu 0x60 0x0>;
+
+			interconnects = <&system_noc MASTER_UFS_MEM RPM_ALWAYS_TAG
+					 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+					<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+					 &config_noc SLAVE_UFS_MEM_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "ufs-ddr", "cpu-ufs";
 
 			clocks = <&gcc GCC_UFS_PHY_AXI_CLK>,
 				 <&gcc GCC_SYS_NOC_UFS_PHY_AXI_CLK>,
@@ -465,6 +540,12 @@
 			clocks = <&rpmcc RPM_SMD_IPA_CLK>;
 			clock-names = "core";
 
+			interconnects = <&system_noc MASTER_IPA RPM_ALWAYS_TAG
+					 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+					<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+					 &config_noc SLAVE_IPA_CFG RPM_ALWAYS_TAG>;
+			interconnect-names = "memory", "config";
+
 			qcom,smem-states = <&ipa_smp2p_out 0>,
 					   <&ipa_smp2p_out 1>;
 			qcom,smem-state-names = "ipa-clock-enabled-valid",
@@ -510,6 +591,9 @@
 			interrupts = <GIC_SPI 177 IRQ_TYPE_LEVEL_HIGH>;
 
 			iommus = <&adreno_smmu 0>;
+			interconnects = <&bimc MASTER_GRAPHICS_3D RPM_ALWAYS_TAG
+					 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>;
+			interconnect-names = "gfx-mem";
 			operating-points-v2 = <&gpu_opp_table>;
 			power-domains = <&rpmpd SM6375_VDDGX>;
 			qcom,gmu = <&gmu_wrapper>;
@@ -524,6 +608,8 @@
 			};
 
 			/*
+			 * opp-peak-kBps: the DDR vote of downstream's pwrlevels (qcom,bus-freq-ddr7 into
+			 * qcom,bus-table-ddr7).
 			 * opp-supported-hw: BIT(n) for the catalog's speed bins {0: 0, 190: 1, 177: 2, 148: 3}
 			 * (148 from kernel/patches/0007; sunstone is a bin-148 part, downstream max 700 MHz,
 			 * which gpucc cannot make: 650 MHz is its top here)
@@ -533,42 +619,49 @@
 
 				opp-900000000 {
 					opp-hz = /bits/ 64 <900000000>;
+					opp-peak-kBps = <8171875>;
 					required-opps = <&rpmpd_opp_turbo_no_cpr>;
 					opp-supported-hw = <0x3>;
 				};
 
 				opp-840000000 {
 					opp-hz = /bits/ 64 <840000000>;
+					opp-peak-kBps = <7046875>;
 					required-opps = <&rpmpd_opp_turbo>;
 					opp-supported-hw = <0x7>;
 				};
 
 				opp-770000000 {
 					opp-hz = /bits/ 64 <770000000>;
+					opp-peak-kBps = <6074218>;
 					required-opps = <&rpmpd_opp_nom_plus>;
 					opp-supported-hw = <0x7>;
 				};
 
 				opp-650000000 {
 					opp-hz = /bits/ 64 <650000000>;
+					opp-peak-kBps = <5285156>;
 					required-opps = <&rpmpd_opp_nom>;
 					opp-supported-hw = <0xf>;
 				};
 
 				opp-490000000 {
 					opp-hz = /bits/ 64 <490000000>;
+					opp-peak-kBps = <3972656>;
 					required-opps = <&rpmpd_opp_svs_plus>;
 					opp-supported-hw = <0xf>;
 				};
 
 				opp-390000000 {
 					opp-hz = /bits/ 64 <390000000>;
+					opp-peak-kBps = <3000000>;
 					required-opps = <&rpmpd_opp_svs>;
 					opp-supported-hw = <0xf>;
 				};
 
 				opp-266000000 {
 					opp-hz = /bits/ 64 <266000000>;
+					opp-peak-kBps = <2136718>;
 					required-opps = <&rpmpd_opp_low_svs>;
 					opp-supported-hw = <0xf>;
 				};
@@ -650,6 +743,13 @@
 			#interrupt-cells = <1>;
 
 			iommus = <&apps_smmu 0x820 0x2>;
+
+			interconnects = <&mmrt_virt MASTER_MDP_PORT0 RPM_ALWAYS_TAG
+					 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+					<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG
+					 &config_noc SLAVE_DISPLAY_CFG RPM_ACTIVE_TAG>;
+			interconnect-names = "mdp0-mem", "cpu-cfg";
+
 			#address-cells = <2>;
 			#size-cells = <2>;
 			ranges;
@@ -850,11 +950,141 @@
 	compatible = "qcom,sm6375-smmu-v2", "qcom,adreno-smmu", "qcom,smmu-v2";
 };
 
+/*
+ * CPU -> DDR: the second path of every CPU votes downstream's compute-mon floors (qcom,cpu0- and
+ * cpu6-computemon core-dev-table: CPU kHz -> DDR MB/s, the first entry at or above the CPU clock),
+ * active set only (downstream's qcom,active-only). The first path is the EPSS L3 of sm6375.dtsi.
+ */
+&cpu0 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu1 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu2 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu3 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu4 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu5 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu6 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu7 {
+	interconnects = <&cpucp_l3 MASTER_EPSS_L3_APPS &cpucp_l3 SLAVE_EPSS_L3_SHARED>,
+			<&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG &bimc SLAVE_EBI1 RPM_ACTIVE_TAG>;
+};
+
+&cpu0_opp_table {
+	opp-300000000 {
+		opp-peak-kBps = <(300000 * 32) 1144000>;
+	};
+
+	opp-576000000 {
+		opp-peak-kBps = <(556800 * 32) 1144000>;
+	};
+
+	opp-691200000 {
+		opp-peak-kBps = <(652800 * 32) 1144000>;
+	};
+
+	opp-940800000 {
+		opp-peak-kBps = <(921600 * 32) 1720000>;
+	};
+
+	opp-1113600000 {
+		opp-peak-kBps = <(921600 * 32) 1720000>;
+	};
+
+	opp-1324800000 {
+		opp-peak-kBps = <(1171200 * 32) 2086000>;
+	};
+
+	opp-1516800000 {
+		opp-peak-kBps = <(1497600 * 32) 2086000>;
+	};
+
+	opp-1651200000 {
+		opp-peak-kBps = <(1497600 * 32) 2929000>;
+	};
+
+	opp-1708800000 {
+		opp-peak-kBps = <(1497600 * 32) 2929000>;
+	};
+
+	opp-1804800000 {
+		opp-peak-kBps = <(1497600 * 32) 2929000>;
+	};
+};
+
 /* blair's gold cluster tops out at 2016 MHz (EPSS LUT), a step holi's table does not have */
 &cpu6_opp_table {
 	opp-2016000000 {
 		opp-hz = /bits/ 64 <2016000000>;
-		opp-peak-kBps = <(1497600 * 32)>;
+	};
+
+	opp-691200000 {
+		opp-peak-kBps = <(556800 * 32) 2086000>;
+	};
+
+	opp-940800000 {
+		opp-peak-kBps = <(921600 * 32) 2086000>;
+	};
+
+	opp-1228800000 {
+		opp-peak-kBps = <(1171200 * 32) 2086000>;
+	};
+
+	opp-1401600000 {
+		opp-peak-kBps = <(1382400 * 32) 2929000>;
+	};
+
+	opp-1516800000 {
+		opp-peak-kBps = <(1497600 * 32) 3879000>;
+	};
+
+	opp-1651200000 {
+		opp-peak-kBps = <(1497600 * 32) 5931000>;
+	};
+
+	opp-1804800000 {
+		opp-peak-kBps = <(1497600 * 32) 6881000>;
+	};
+
+	opp-1900800000 {
+		opp-peak-kBps = <(1497600 * 32) 6881000>;
+	};
+
+	opp-2016000000 {
+		opp-peak-kBps = <(1497600 * 32) 7980000>;
+	};
+
+	opp-2054400000 {
+		opp-peak-kBps = <(1497600 * 32) 7980000>;
+	};
+
+	opp-2208000000 {
+		opp-peak-kBps = <(1497600 * 32) 7980000>;
 	};
 };
 
@@ -868,6 +1098,13 @@
 
 &i2c7 {
 	clock-frequency = <400000>;
+	interconnects = <&clk_virt MASTER_QUP_CORE_1 RPM_ALWAYS_TAG
+			 &clk_virt SLAVE_QUP_CORE_1 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_QUP_1 RPM_ALWAYS_TAG>,
+			<&system_noc MASTER_QUP_1 RPM_ALWAYS_TAG
+			 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>;
+	interconnect-names = "qup-core", "qup-config", "qup-memory";
 	pinctrl-0 = <&qup_i2c7_default>;
 	pinctrl-names = "default";
 	status = "okay";
@@ -927,6 +1164,13 @@
 
 &i2c10 {
 	clock-frequency = <400000>;
+	interconnects = <&clk_virt MASTER_QUP_CORE_1 RPM_ALWAYS_TAG
+			 &clk_virt SLAVE_QUP_CORE_1 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_QUP_1 RPM_ALWAYS_TAG>,
+			<&system_noc MASTER_QUP_1 RPM_ALWAYS_TAG
+			 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>;
+	interconnect-names = "qup-core", "qup-config", "qup-memory";
 	status = "okay";
 
 	/*
@@ -1016,6 +1260,13 @@
 
 &i2c8 {
 	clock-frequency = <400000>;
+	interconnects = <&clk_virt MASTER_QUP_CORE_1 RPM_ALWAYS_TAG
+			 &clk_virt SLAVE_QUP_CORE_1 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_QUP_1 RPM_ALWAYS_TAG>,
+			<&system_noc MASTER_QUP_1 RPM_ALWAYS_TAG
+			 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>;
+	interconnect-names = "qup-core", "qup-config", "qup-memory";
 	status = "okay";
 
 	touchscreen@38 {
@@ -1701,6 +1952,14 @@
 			      "vfe1", "vfe1_cphy_rx",
 			      "vfe2", "vfe2_cphy_rx";
 		assigned-clocks = <&gcc GCC_CAMSS_AXI_CLK>, <&gcc GCC_CAMSS_TOP_AHB_CLK>;
+
+		interconnects = <&bimc MASTER_APPSS_PROC RPM_ACTIVE_TAG
+				 &config_noc SLAVE_CAMERA_CFG RPM_ACTIVE_TAG>,
+				<&mmrt_virt MASTER_CAMNOC_HF RPM_ALWAYS_TAG
+				 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+				<&mmnrt_virt MASTER_CAMNOC_SF RPM_ALWAYS_TAG
+				 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>;
+		interconnect-names = "ahb", "hf_mnoc", "sf_mnoc";
 		assigned-clock-rates = <300000000>, <80000000>;
 
 		interrupts = <GIC_SPI 210 IRQ_TYPE_EDGE_RISING>,
@@ -2250,12 +2509,30 @@
  * tray comes out.
  */
 &sdhc_2 {
+	interconnects = <&system_noc MASTER_SDCC_2 RPM_ALWAYS_TAG
+			 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_SDCC_2 RPM_ALWAYS_TAG>;
+	interconnect-names = "sdhc-ddr", "cpu-sdhc";
 	vmmc-supply = <&pm6125_l22>;
 	vqmmc-supply = <&pm6125_l5>;
 	cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
 	no-mmc;
 	no-sdio;
 	status = "okay";
+};
+
+/* agatti's values for the same SDHC */
+&sdhc2_opp_table {
+	opp-100000000 {
+		opp-peak-kBps = <250000 133320>;
+		opp-avg-kBps = <261438 150000>;
+	};
+
+	opp-202000000 {
+		opp-peak-kBps = <800000 300000>;
+		opp-avg-kBps = <261438 300000>;
+	};
 };
 
 &sdc2_off_state {
@@ -2281,6 +2558,11 @@
  * SE in GSI mode), downstream ir-spi-led at 19.2 MHz; the LED is pulsed by the MOSI bit pattern.
  */
 &spi2 {
+	interconnects = <&clk_virt MASTER_QUP_CORE_0 RPM_ALWAYS_TAG
+			 &clk_virt SLAVE_QUP_CORE_0 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_QUP_0 RPM_ALWAYS_TAG>;
+	interconnect-names = "qup-core", "qup-config";
 	pinctrl-0 = <&qup_spi2_default>;
 	pinctrl-names = "default";
 	status = "okay";
@@ -2293,6 +2575,11 @@
 };
 
 &uart1 {
+	interconnects = <&clk_virt MASTER_QUP_CORE_0 RPM_ALWAYS_TAG
+			 &clk_virt SLAVE_QUP_CORE_0 RPM_ALWAYS_TAG>,
+			<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+			 &config_noc SLAVE_QUP_0 RPM_ALWAYS_TAG>;
+	interconnect-names = "qup-core", "qup-config";
 	status = "okay";
 
 	bluetooth {
@@ -2331,6 +2618,12 @@
 			      "sleep",
 			      "mock_utmi",
 			      "xo";
+
+		interconnects = <&system_noc MASTER_USB3_0 RPM_ALWAYS_TAG
+				 &bimc SLAVE_EBI1 RPM_ALWAYS_TAG>,
+				<&bimc MASTER_APPSS_PROC RPM_ALWAYS_TAG
+				 &config_noc SLAVE_USB3 RPM_ALWAYS_TAG>;
+		interconnect-names = "usb-ddr", "apps-usb";
 
 		assigned-clocks = <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK>,
 				  <&gcc GCC_USB30_PRIM_MASTER_CLK>;

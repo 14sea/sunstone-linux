@@ -1,0 +1,22 @@
+media: qcom: camss: vote the SM6375 interconnect paths
+
+Give SM6375 QCM2290's ahb, hf_mnoc and sf_mnoc paths and bandwidths:
+it has the same camera NoC masters (CAMNOC_HF on MMRT, CAMNOC_SF on
+MMNRT). Without votes the multimedia NoCs run at their keep-alive
+minimum once the interconnect driver is there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index b110d810e..224b2221c 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -5861,6 +5861,8 @@ static const struct camss_resources sm6375_resources = {
+ 	.csiphy_res = csiphy_res_6375,
+ 	.csid_res = csid_res_6375,
+ 	.vfe_res = vfe_res_6375,
++	.icc_res = icc_res_2290,
++	.icc_path_num = ARRAY_SIZE(icc_res_2290),
+ 	.csiphy_num = ARRAY_SIZE(csiphy_res_6375),
+ 	.csid_num = ARRAY_SIZE(csid_res_6375),
+ 	.vfe_num = ARRAY_SIZE(vfe_res_6375),
