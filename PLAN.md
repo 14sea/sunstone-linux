@@ -44,7 +44,7 @@ ABL 從 `vendor_boot` 裡按 msm-id/board-id 挑一個**下游** DTB（再疊加
 | --- | --- | --- |
 | shim 屏幕控制台 | 跳轉前 | 紅底文字：payload 校驗、各段地址、跳轉地址 |
 | simplefb + fbcon | M1 起 | DTB 裡聲明 ABL 留下的 splash：`0x85200000`，a8r8g8b8，1080x2400，stride 4320；內核日誌直接上屏 |
-| pstore/ramoops | M1 起 | 和下游佈局一致：`0xd0000000`、2 MB、console 1 MB、pmsg 1 MB。崩潰或重啟後進 crDroid recovery，讀 `/sys/fs/pstore/console-ramoops*`。boot-1 已驗證：warm reset 保留記錄，有零星位翻轉 |
+| pstore/ramoops | M1 起 | 和下游佈局一致：`0xd0000000`、2 MB、console 1 MB、pmsg 1 MB。崩潰或重啟後進 crDroid recovery，讀 `/sys/fs/pstore/console-ramoops*`。boot-1 已驗證：warm reset 保留記錄，有零星位翻轉。2026-10-27 起：console 1 MB + 6 個 128 KB dmesg 記錄 + pmsg 256 KB，經 PS_HOLD 熱復位保留（TZ 的 PSCI 只有冷復位），下次開機由 systemd-pstore 存到 /var/lib/systemd/pstore/<時間>/ |
 | USB gadget | M2 起 | CDC-NCM/ECM 網卡 + ACM 串口；測試主機 ssh / `screen` |
 
 ## 里程碑
