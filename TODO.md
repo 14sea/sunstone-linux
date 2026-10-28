@@ -307,7 +307,7 @@ PM6125 溫度報警、Venus（能探測，關着）、OPE（離線 ISP）、主�
       漫遊註冊在 LTE B3（20 MHz，RSRP −99 dBm，SNR 15.6 dB）。NetworkManager 連接 `1nce`（APN `iot.1nce.net`，只 IPv4，
       不自動連接、`ipv4.never-default`：這張卡流量很少）→ `qmapmux0.0@rmnet_ipa0`，經它 ping 8.8.8.8 4/4（約 90 ms）。
       modem 沒有 LTE-M/NB-IoT（DMS 能力只有 gsm/umts/lte/5gnr），LTE 硬件頻段 1/3/5/7/8/34/38–41（沒有 B20/B28）。
-      剩下：短信（MM 報存儲 sm/me；1NCE 卡的短信額度已用完，後台發不出，2026-10-26 沒測成，要換卡或等額度）、新鏡像沒有 NetworkManager（build-rootfs 用 networkd）時怎麼撥號
+      剩下：短信（MM 報存儲 sm/me；1NCE 卡的短信額度已用完，後台發不出，2026-10-26 沒測成，要換卡或等額度；IMS 短信見下面「從 M1892」）、新鏡像沒有 NetworkManager（build-rootfs 用 networkd）時怎麼撥號
       （mmcli --simple-connect + networkd 配地址，或換 NM）；通話要音頻。
       已知：`ipa: unexpected init_completed response`：ipa 是模塊，modem（內置 PAS 驅動）在 rootfs 掛載後先開始上電，ipa 錯過
       BEFORE_POWERUP，沒有拿 uC 的代理電源引用。影響只有 uC 的寄存器保持（要 AOSS QMP，這顆 RPM 架構的 SoC 沒有，函數直接
@@ -468,6 +468,30 @@ PM6125 溫度報警、Venus（能探測，關着）、OPE（離線 ISP）、主�
 - [ ] OTG 剩下的：PD 關着（充電器按 Rp 給 5 V；要快充或數據角色交換再開）；角色切換時 `dwc3-qcom: remote wakeup
       not configured`（沒配 wakeup-source）；udev 的 `mtp-probe` 不存在（libmtp 規則，無害）；接 OTG 時手機用電池
       給外設供電，長時間接大功率設備會耗盡電池。
+
+## 從 Meizu 16th Plus（M1892）主線項目借鑒的（2026-10-28 整理）
+
+參考：https://github.com/NoobMaster233/meizu-m1892-mainline-linux（驍龍 845，sdm845-mainline 7.1-rc1，postmarketOS +
+Phosh，EDK2 啟動；2026.09-developer-preview.17）。他那邊通話和短信已通過，我們缺的正好是這部分。
+
+- [ ] 短信走 IMS：他把 ModemManager 從固定的上游提交重編，在 LTE/IMS 網絡下發短信前先設 QMI WMS 的 `SMS on IMS`，
+      modem 明確拒絕 IMS 時再用默認域重試一次（保留 CS 短信）。這部分在用戶空間，跟 SoC 無關，做「蜂窩網絡」裡的短信時
+      先看他的補丁（release 裡的 `m1892-telephony-audio-source.tar.gz`）；還要一張能收發短信的卡。
+- [ ] 通話音頻能不能用 q6voice：他用 sdm845-mainline 的 q6voice（主線 7.3 沒有，`sound/soc/qcom/qdsp6/` 裡沒有），加上他的
+      0014 補丁（在 `.prepare` 裡啟動 q6voice，等兩個方向都 hw_params 之後再開，否則先開錄音時接收方向可能沒聲；xrun 後重複
+      prepare 返回 0）。要確認的：我們 ADSP 固件有沒有舊式 APR voice 服務（CVP/CVS/MVM）、modem 的 VoLTE 是否需要另外
+      的 IMS 用戶空間（他打包了通話和 IMS 的運行時）；前提是聽筒（見「音頻」）。
+- [ ] 留意 kfree_rcu sheaf 的崩潰：他在 7.1-rc1 上遇到過一次延遲的 Oops，崩在 `__rcu_free_sheaf_prepare()`，壞的 sheaf 裡
+      存着 `rcu_free_sheaf` 本身的地址；他讓 `kfree_rcu_sheaf()` 直接返回 false 繞開（0010）。我們 7.3 裡這段還在
+      （`mm/slab_common.c` 的 `kfree_rcu_sheaf`），boot-192 的 24 h 測試和之前都沒見過。pstore 裡出現 sheaf/kfree_rcu 調用棧時
+      先查上游有沒有修，再考慮同樣繞開。
+- [ ] Docker 自檢：他有 `m1892-docker-selftest`（用手機自己的 BusyBox 和 musl 臨時做一個 arm64 鏡像，測默認網橋、自定義
+      網絡的 DNS、卷、bind mount、內存限制、端口映射、Compose、Buildx，結束後清理）。我們是服務器，容器是很可能的用途，
+      但還沒測過：先用 `/usr/share/docker.io/contrib/check-config.sh` 之類對一下 sunstone.config（cgroup、overlayfs、
+      netfilter、veth、bridge），缺的補進配置，再照他的清單在 Ubuntu 的 docker.io 上跑一遍。
+- 不用跟的：UFS Auto-Hibern8 時鐘請求（他的 0011，上游 76417038）7.3 已經有；但他實測 UFS 完整運行時 PM（rpm_lvl 3）
+  會卡死整機、只開 AH8，做低功耗（XO shutdown）時記得這點。EDK2 啟動鏈（SM4375 沒有現成的，shim 夠用）、Phosh 觸屏體驗
+  不是我們的目標。
 
 ## 以後
 
