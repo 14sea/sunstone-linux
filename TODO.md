@@ -64,6 +64,10 @@ PM6125 溫度報警、Venus（能探測，關着）、OPE（離線 ISP）、主�
       但返回值被忽略，之後的關閉觸發告警。顯示正常。查 agatti（同樣的 dispcc 標誌 + 復位）上游有沒有處理；可能的修法：
       dispcc 在 PHY 時鐘可用前不要把這兩個 RCG 當成以 PHY 為父，或在 clk 框架裏讓 `__clk_set_parent_before` 失敗時不做
       對應的關閉。
+      線索（2026-10-28）：https://github.com/Techuouo520/linux7.2.2-alioth-mainline（POCO F3，sm8250，7.2.2）把
+      `dispcc-sm8250.c` 裡 pclk0/pclk1 的 `CLK_OPS_PARENT_ENABLE` 去掉了（byte 時鐘沒動），沒寫原因（整棵樹是一個初始提交）。
+      上游加這個標誌是為了改像素時鐘頻率時父時鐘開着，不能照抄：試的時候（在 dispcc-sm6375 的 byte0/pclk0 上，分開試）
+      看這條告警和下面兩條（`Lucid PLL latch failed`、`DSI PLL(0) lock failed`）有沒有變，再驗 120/60 Hz 切換和熄屏、亮屏。
 - [ ] 面板 prepare 失敗後沒有恢復：Phosh 之後的 modeset 不會重新 prepare，屏幕一直黑。`m17_prepare()` 失敗時
       已經會復位、斷電；要查的是 DRM 的 active 狀態是否讓後續提交不再走完整的 disable/prepare/enable。先用一次
       完整的關閉再開啟顯示的提交驗證，不在 enable 裏補 prepare。
