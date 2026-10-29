@@ -56,8 +56,6 @@
 - [ ] lockdep 報告（調試內核，boot-53）：PSCI cpuidle 電源域 `genpd_add_subdomain` 裏 raw spinlock 下拿普通
       spinlock（Invalid wait context）；`qcom_scm_probe` → `qcom_tzmem_enable` → `qcom_scm_shm_bridge_enable`
       在原子上下文調用會睡眠的 SCM 調用。都像上游問題，和顯示無關。
-- [ ] ModemManager 每隔幾分鐘探測 `usb0`（gadget 的 NCM 網口），報 `Missing port probe for port (net/usb0)`：無害，
-      加一條 udev 規則 `ID_MM_DEVICE_IGNORE=1` 就安靜了。
 - [ ] tqftpserv 用的是 Ubuntu 的 1.1.1（可讀寫目錄在 /tmp，每次開機清空）；Arch 上是 git v1.3（/var/lib/tqftpserv）。
       modem 和 Wi-Fi 正常，有問題再換。
 - [ ] 救援模式下寫 userdata 只有 6 MB/s（dropbear 單線程加密，8G 用 1352 s）：可以改用 `nc` 直傳。
@@ -235,8 +233,6 @@
 
 ### 其他硬件
 
-- [ ] 電池溫區停充的實際電流：見已完成的「熱管理的剩餘部分」裡的「剩下」（電池真的在充電時用 `emul_temp` 60 °C 看
-      `current_now` 是否歸零）。
 - [ ] OTG 剩下的：PD 關着（充電器按 Rp 給 5 V；要快充或數據角色交換再開）；角色切換時 `dwc3-qcom: remote wakeup
       not configured`（沒配 wakeup-source）；udev 的 `mtp-probe` 不存在（libmtp 規則，無害）；接 OTG 時手機用電池
       給外設供電，長時間接大功率設備會耗盡電池。
@@ -617,9 +613,8 @@
         55 °C 停充，70 °C 關機。`emul_temp` 驗證了寄存器（LOG boot-186）。
       - PM6125 溫度報警：驅動按 critical 觸發點選閾值組，pm6125.dtsi 的 145 °C 讓第一級中斷在 105 °C，95 °C 的被動觸發點
         形同虛設；改成原廠的 critical 115 °C → 95/115/145 °C，第一級中斷正好在被動觸發點，限 cpu6（同原廠）。
-      - 剩下：停充的實際電流沒看到（電池滿着，CV 被 DT 限在 4.1 V），下次電池真的充電時用 `emul_temp` 60 °C 看
-        `current_now` 是否歸零；0 °C 以下停充（熱框架不管低溫，室內服務器用不到）；PMR735A 溫區沒有冷卻設備（原廠是
-        modem 的 QMI 冷卻）。
+      - 剩下：停充的實際電流（2026-10-29 看了，歸零，見「其他」）；0 °C 以下停充（熱框架不管低溫，室內服務器用不到）；
+        PMR735A 溫區沒有冷卻設備（原廠是 modem 的 QMI 冷卻）。
 - [x] **CDSP**（Turing，2026-10-27 對照原廠 live DT 發現，同日做完，boot-182）：板級 DTS 打開 `remoteproc_cdsp`
       （`qcom,sm6375-cdsp-pas` = 主線的 sm8150 CDSP 數據：PAS 18、crash reason SMEM 601，和原廠 `qcom,turing@b000000` 一樣），
       固件 modem_a 的 `cdsp.mdt/.bNN`（sunstone-fw-install 一起拷），載體 0x88f00000；fastrpc 的 compute-cb 1–6 =
@@ -657,6 +652,13 @@
 
 ### 其他
 
+- [x] ModemManager 每隔幾分鐘探測 `usb0`（gadget 的 NCM 網口），報 `Missing port probe for port (net/usb0)`：無害，
+      加一條 udev 規則 `ID_MM_DEVICE_IGNORE=1` 就安靜了。
+      （2026-10-29 做了：`80-sunstone-mm-gadget.rules`，按設備路徑匹配所有 gadget 網口，`udevadm test` 看到 usb0 有、wlan0 沒有。）
+- [x] 電池溫區停充的實際電流（2026-10-29，boot-192）：電池在 CV 4.096 V 下充滿過，充電器要到 3.896 V（回充門限 200 mV）
+      才會再充，所以用 `online` 0/1（HiZ 進出）起一個新的充電週期：充電約 430–490 mA（USB 主機口，輸入限 500 mA）；
+      `emul_temp` 60 °C 後 2 s 內冷卻狀態 3、REG04 0x00、CHRG_STAT 00、電池電流 0（系統由 VBUS 供電，不吃電池）；
+      恢復後 2 s 內又在充。1 A / 500 mA 兩級在這個輸入下看不出差別（輸入本來就限在 500 mA）。
 - [x] DTS 合併（2026-10-25）：m1 → … → m6 → m6d 的串聯合成一個板級 `dts/sm4375-xiaomi-sunstone.dts`（每個節點一次，
       覆蓋過的值直接寫最終值），加 `-rescue.dts`（救援模式，shim 不開看門狗）。校驗：兩者經 cpp + `dtc -O dts -s` 展開排序、
       去掉 phandle 行後，只差 model 字符串。舊文件和二分樹（m6a/e/f/g、m3rescue）在 git tag `dts-milestones`。

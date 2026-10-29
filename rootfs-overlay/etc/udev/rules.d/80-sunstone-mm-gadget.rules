@@ -1,0 +1,4 @@
+# sunstone: the USB gadget's network port (usb0, NCM to the test host) is not a modem. Without this
+# ModemManager probes it whenever it appears and logs "Missing port probe for port (net/usb0)" every few
+# minutes (seen 2026-10-27).
+ACTION=="add|change|move|bind", SUBSYSTEM=="net", DEVPATH=="*/gadget.*/net/*", ENV{ID_MM_DEVICE_IGNORE}="1"
