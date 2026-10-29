@@ -1,0 +1,90 @@
+media: qcom: camss: OPE: unprepare the clocks while runtime suspended
+
+pm_clk prepares the clocks when they are added and only disables them in
+runtime suspend, so the OPE's clocks (core, iface, axi, top AHB) stay
+prepared for good. On RPM SoCs clk-smd-rpm votes for the XO from prepare,
+and a prepared clock under the XO keeps the XO on in the RPM sleep set: the
+RPM never shuts it down, even while nothing uses the OPE (sunstone, SM4375).
+
+Get the clocks as a bulk and enable and prepare them in runtime resume,
+disable and unprepare them in runtime suspend.
+
+Signed-off-by: 14sea <14sea@users.noreply.github.com>
+
+diff --git a/drivers/media/platform/qcom/camss/ope/core.c b/drivers/media/platform/qcom/camss/ope/core.c
+index 1775555dd..202af03bc 100644
+--- a/drivers/media/platform/qcom/camss/ope/core.c
++++ b/drivers/media/platform/qcom/camss/ope/core.c
+@@ -50,7 +50,6 @@
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+-#include <linux/pm_clock.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_opp.h>
+ #include <linux/pm_runtime.h>
+@@ -561,6 +560,9 @@ struct ope_dev {
+ 	struct icc_path		*icc_data;
+ 	struct icc_path		*icc_config;
+ 
++	struct clk_bulk_data	*clks;
++	int			num_clks;
++
+ 	void __iomem		*base;
+ 	void __iomem		*base_rd;
+ 	void __iomem		*base_wr;
+@@ -3232,16 +3234,16 @@ static int ope_init_power(struct ope_dev *ope)
+ 	if (ret && ret != -ENODEV)
+ 		return dev_err_probe(dev, ret, "invalid OPP table\n");
+ 
+-	ret = devm_pm_runtime_enable(dev);
+-	if (ret)
+-		return ret;
++	ret = devm_clk_bulk_get_all(dev, &ope->clks);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to get clocks\n");
++	ope->num_clks = ret;
+ 
+-	ret = devm_pm_clk_create(dev);
+-	if (ret)
+-		return ret;
++	/* the runtime PM callbacks need it, and probe resumes the device before it ends */
++	dev_set_drvdata(dev, ope);
+ 
+-	ret = of_pm_clk_add_clks(dev);
+-	if (ret < 0)
++	ret = devm_pm_runtime_enable(dev);
++	if (ret)
+ 		return ret;
+ 
+ 	return 0;
+@@ -3331,8 +3333,28 @@ static const struct of_device_id ope_dt_ids[] = {
+ };
+ MODULE_DEVICE_TABLE(of, ope_dt_ids);
+ 
++/*
++ * Not pm_clk: it keeps the clocks prepared while the OPE is suspended, and on RPM SoCs a prepared
++ * clock under the XO keeps the XO voted on in the RPM sleep set, so the SoC never shuts it down.
++ */
++static int ope_runtime_suspend(struct device *dev)
++{
++	struct ope_dev *ope = dev_get_drvdata(dev);
++
++	clk_bulk_disable_unprepare(ope->num_clks, ope->clks);
++
++	return 0;
++}
++
++static int ope_runtime_resume(struct device *dev)
++{
++	struct ope_dev *ope = dev_get_drvdata(dev);
++
++	return clk_bulk_prepare_enable(ope->num_clks, ope->clks);
++}
++
+ static const struct dev_pm_ops ope_pm_ops = {
+-	SET_RUNTIME_PM_OPS(pm_clk_suspend, pm_clk_resume, NULL)
++	SET_RUNTIME_PM_OPS(ope_runtime_suspend, ope_runtime_resume, NULL)
+ };
+ 
+ static struct platform_driver ope_driver = {
