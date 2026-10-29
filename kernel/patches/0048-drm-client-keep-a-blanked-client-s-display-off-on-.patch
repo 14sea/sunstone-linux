@@ -1,0 +1,62 @@
+drm/client: keep a blanked client's display off on later commits
+
+drm_client_modeset_dpms() turns the CRTCs off, but every later commit of
+the client's configuration turns them on again: drm_client_modeset_commit_locked()
+always commits with active = true. For fbdev that is the restore on
+lastclose (any program that opens and closes the DRM device), on a VT
+switch (set_par) and the pan of a scrolling console. fbcon still thinks
+the console is blanked, so it does not blank it again, and the display
+stays on: scanning out a black console at about 1.5 GB/s, with the
+display controller holding CX at SVS_L1 (sunstone, 2026-10-29: opening
+and closing /dev/dri/card1 once was enough).
+
+Remember the blank in the client and commit with the CRTCs off while it
+lasts. Clients that never call drm_client_modeset_dpms() are unchanged.
+Legacy (non-atomic) drivers are left as they were.
+
+Signed-off-by: 14sea <14sea@users.noreply.github.com>
+
+diff --git a/drivers/gpu/drm/drm_client_modeset.c b/drivers/gpu/drm/drm_client_modeset.c
+index 0080a8e95..d231c2689 100644
+--- a/drivers/gpu/drm/drm_client_modeset.c
++++ b/drivers/gpu/drm/drm_client_modeset.c
+@@ -1204,7 +1204,7 @@ int drm_client_modeset_commit_locked(struct drm_client_dev *client)
+ 
+ 	mutex_lock(&client->modeset_mutex);
+ 	if (drm_drv_uses_atomic_modeset(dev))
+-		ret = drm_client_modeset_commit_atomic(client, true, false);
++		ret = drm_client_modeset_commit_atomic(client, !client->blanked, false);
+ 	else
+ 		ret = drm_client_modeset_commit_legacy(client);
+ 	mutex_unlock(&client->modeset_mutex);
+@@ -1282,8 +1282,9 @@ int drm_client_modeset_dpms(struct drm_client_dev *client, int mode)
+ 		return -EBUSY;
+ 
+ 	mutex_lock(&client->modeset_mutex);
++	client->blanked = mode != DRM_MODE_DPMS_ON;
+ 	if (drm_drv_uses_atomic_modeset(dev))
+-		ret = drm_client_modeset_commit_atomic(client, mode == DRM_MODE_DPMS_ON, false);
++		ret = drm_client_modeset_commit_atomic(client, !client->blanked, false);
+ 	else
+ 		drm_client_modeset_dpms_legacy(client, mode);
+ 	mutex_unlock(&client->modeset_mutex);
+diff --git a/include/drm/drm_client.h b/include/drm/drm_client.h
+index 49a21f3dc..8ae5c104d 100644
+--- a/include/drm/drm_client.h
++++ b/include/drm/drm_client.h
+@@ -137,6 +137,15 @@ struct drm_client_dev {
+ 	 */
+ 	struct drm_mode_set *modesets;
+ 
++	/**
++	 * @blanked:
++	 *
++	 * The client's display was turned off with drm_client_modeset_dpms().
++	 * Commits of the client's configuration keep the CRTCs off until the
++	 * display is turned on again. Protected by @modeset_mutex.
++	 */
++	bool blanked;
++
+ 	/**
+ 	 * @suspended:
+ 	 *
