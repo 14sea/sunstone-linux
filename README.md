@@ -39,7 +39,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Media | PipeWire in 16 bit with the UCM profile; cameras through libcamera's simple pipeline and PipeWire's libcamera plugin (WirePlumber's V4L2 monitor off), buffers from the system dma-buf heap; GNOME Snapshot built with a patch that turns the preview and the pictures with the display (`tools/ubuntu/add-snapshot.sh`); libcamera 0.7.0 with contrast-detect autofocus in `/usr/local` (`tools/ubuntu/add-libcamera-af.sh`), switched to a fixed focus at about 2 m with `sunstone-camera-focus fixed` or GNOME's Camera Focus launcher |
 | Sensors | hexagonrpcd built with a write patch (`tools/ubuntu/add-hexagonrpcd.sh`), libssc and iio-sensor-proxy with SSC support (`tools/ubuntu/add-ssc.sh`) |
 
-Open items are in `TODO.md` (the SoC's low-power modes, earpiece, SMS, Venus with
+Open items are in `TODO.md` (suspend policy and Wi-Fi wake (s2idle reaches VDD min since 2026-10-29), earpiece, SMS, Venus with
 this firmware, the OPE and lens shading in libcamera, GNOME's smoothness, panel brightness curve, DSI PHY clock
 warning, dispcc PLL latch, ...).
 

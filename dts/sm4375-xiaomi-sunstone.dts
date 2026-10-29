@@ -1360,6 +1360,16 @@
 	};
 };
 
+/*
+ * The MPM driver holds the XO (RPM sleep set too) except in system suspend (kernel/patches/0054):
+ * the SoC shuts the XO down in runtime idle as soon as nothing votes for it, and the UFS PHY loses
+ * the hibern8 link it keeps between requests.
+ */
+&mpm {
+	clocks = <&rpmcc RPM_SMD_XO_CLK_SRC>;
+	clock-names = "xo";
+};
+
 /* not used on this board: the PM6125 RTC is disabled in hardware (probe gets -EPERM) */
 &pm6125_rtc {
 	status = "disabled";
