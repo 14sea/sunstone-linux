@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Wi-Fi reconnect test: the phone joins a test AP (tools/esp8266-ap on this host's serial port), the
 AP goes away for a while and comes back, and the time until the phone pings the AP again is measured.
-The phone uses only the test AP during the test (wpa_cli, nothing written to its config) and goes back
-to its normal network at the end (wpa_supplicant restart).
+The phone uses only the test AP during the test and goes back to its normal network at the end; nothing is
+written to its config: with NetworkManager the test profile is in memory only (save no) and the other Wi-Fi
+profiles' autoconnect is switched off with --temporary (an in-memory copy in /run, removed at the end);
+with plain wpa_supplicant it is wpa_cli and a wpa_supplicant restart.
   AP_SSID=... AP_PASS=... [ESP_PORT=/dev/ttyUSBn] tools/wifi-ap-test.py [OFF_SECONDS ...]   default: 10 60 300
 """
 import os, subprocess, sys, threading, time
@@ -54,13 +56,31 @@ def wait_ping(limit):
 		time.sleep(1)
 	return None
 
+NM = phone('systemctl is-active NetworkManager') == 'active'
+TEST_CON = 'sunstone-ap-test'
+# the other Wi-Fi profiles that autoconnect, as name<TAB>file; they must not take over while the AP is off
+others = [l.split('\t') for l in phone('nmcli -g NAME,TYPE,AUTOCONNECT,FILENAME con show | '
+					'awk -F: \'$2 == "802-11-wireless" && $3 == "yes" && $1 != "' + TEST_CON + '" '
+					'{ print $1 "\t" $4 }\'').splitlines()] if NM else []
+
+def status():
+	if NM:
+		return phone('nmcli -g GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS dev show wlan0')
+	return phone('wpa_cli -i wlan0 status | grep -E "^(wpa_state|ssid|ip_address)="; ip -4 -o addr show wlan0 | awk "{print \\$4}"')
+
 results = []
 try:
 	ap('on')
 	ap('status')
-	log('phone: use only the test AP')
-	print(phone(f'n=$(wpa_cli -i wlan0 add_network) && wpa_cli -i wlan0 set_network $n ssid {q(chr(34) + SSID + chr(34))} >/dev/null && '
-		    f'wpa_cli -i wlan0 set_network $n psk {q(chr(34) + PASS + chr(34))} >/dev/null && wpa_cli -i wlan0 select_network $n && echo network $n'))
+	log('phone: use only the test AP' + (' (NetworkManager)' if NM else ''))
+	if NM:
+		for name, _ in others:
+			phone(f'nmcli con modify --temporary {q(name)} connection.autoconnect no')
+		print(phone(f'nmcli con add save no type wifi ifname wlan0 con-name {TEST_CON} ssid {q(SSID)} '
+			    f'wifi-sec.key-mgmt wpa-psk wifi-sec.psk {q(PASS)} >/dev/null && nmcli con up {TEST_CON} 2>&1 | tail -1', 60))
+	else:
+		print(phone(f'n=$(wpa_cli -i wlan0 add_network) && wpa_cli -i wlan0 set_network $n ssid {q(chr(34) + SSID + chr(34))} >/dev/null && '
+			    f'wpa_cli -i wlan0 set_network $n psk {q(chr(34) + PASS + chr(34))} >/dev/null && wpa_cli -i wlan0 select_network $n && echo network $n'))
 	t = wait_ping(120)
 	log(f'phone on the test AP after {t:.0f} s' if t is not None else 'phone did not join the test AP')
 	if t is None:
@@ -74,12 +94,21 @@ try:
 		t = wait_ping(600)
 		log(f'reconnect after {off} s off: ' + (f'{t:.0f} s' if t is not None else 'NO (600 s)'))
 		results.append((off, t))
-		print(phone('wpa_cli -i wlan0 status | grep -E "^(wpa_state|ssid|ip_address)="; ip -4 -o addr show wlan0 | awk "{print \\$4}"'))
+		print(status())
 		time.sleep(20)
 finally:
 	log('phone: back to the normal network')
-	phone('journalctl -b -u wpa_supplicant@wlan0 -u systemd-networkd --since -40min --no-pager -o short-monotonic > /root/wifi-ap-test.journal; '
-	      'systemctl restart wpa_supplicant@wlan0', 60)
+	if NM:
+		phone('journalctl -b -u NetworkManager -u wpa_supplicant --since -40min --no-pager -o short-monotonic > /root/wifi-ap-test.journal; '
+		      f'nmcli con delete {TEST_CON}; ' +
+		      # --temporary leaves an in-memory copy in /run that shadows the file in /etc (nmcli con load
+		      # does not drop it); remove that copy and reload, so the profile is the file again
+		      ''.join(f'r=/run/NetworkManager/system-connections/$(basename {q(f)}); '
+			      f'grep -qx {q("shadowed-storage=" + f)} "$r" && rm "$r"; ' for name, f in others) +
+		      'nmcli con reload', 60)
+	else:
+		phone('journalctl -b -u wpa_supplicant@wlan0 -u systemd-networkd --since -40min --no-pager -o short-monotonic > /root/wifi-ap-test.journal; '
+		      'systemctl restart wpa_supplicant@wlan0', 60)
 	ap('off')
 	gw = None
 	for i in range(60):

@@ -9,9 +9,6 @@
 
 ### 服務器、穩定性、功耗
 
-- [ ] NetworkManager 管 Wi-Fi 時再測一次斷線重連：現在手機上是 NetworkManager（wpa_supplicant@wlan0 沒在跑），
-      10-25 的重連測試是在換 NetworkManager 之前，24 h 測試裡 AP 沒斷過。照舊用 `tools/wifi-ap-test.py` + ESP8266 AP。
-
 - [ ] 休眠：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`）**，`sleep.conf.d` 仍然關着自動休眠
       （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
       - 以前「第二次沒恢復」：boot-180 上 pm_test freezer 就讓手機硬復位。凍結打斷 hexagonrpcd 的 fastrpc 調用，重啟的
@@ -424,6 +421,10 @@
 - [x] Wi-Fi 斷線重連（2026-10-25，`tools/wifi-ap-test.py` + `tools/esp8266-ap`，ESP8266 當測試 AP）：AP 消失 10 s / 60 s / 300 s
       後重新出現，手機分別 4 / 7 / 13 s 後重新連上並 ping 通 AP，無需干預；回到原網絡後 DHCP 拿回原地址。開機時 modem 卡 65 s
       的問題已修（見上，補丁 0010）。
+- [x] NetworkManager 管 Wi-Fi 時的斷線重連（2026-10-29，boot-192，`tools/wifi-ap-test.py` 加了 NetworkManager 模式：測試配置 `save no`
+      只在內存裏，家裏網絡的配置用 `--temporary` 臨時關自動連接，結束時刪掉 /run 裏的影子副本再 `nmcli con reload`，
+      /etc 的文件 md5 前後一樣）：AP 關 10 / 60 / 300 s 後分別 10 / 4 / 13 s 重新連上並 ping 通；結束後 6 s 回到家裏的網絡，
+      測試主機下一次探測（約 20 s 後）就通了，10-25 那次 2–3 min 連不上的現象沒有再出現。
 - [x] 回到家裏的網絡後，測試主機約 2–3 min 內 ping 不通手機（省電開着時，07:03、07:04 兩次探測失敗）。關掉省電後複測
       （2026-10-25，測試主機每秒 ping，時間戳用同一個時鐘）：手機 07:50:45 回到網絡，同一秒起 ping 通，之後 4.5 min 無間斷。
       多半是省電造成的（各只測了一次）。
