@@ -1,6 +1,6 @@
 # sunstone Linux 待辦
 
-現在（2026-10-29）：Ubuntu Server 26.04 on 主線 7.3，生產鏡像 boot-192（內核 `g7e505d4db29d`），24 h 穩定性測試已通過。
+現在（2026-10-29）：Ubuntu Server 26.04 on 主線 7.3，生產鏡像 boot-193（內核 `g7e505d4db29d`，加了容器用的配置），24 h 穩定性測試已通過（boot-192）。
 未完成的按領域分在「未完成」下面，每節大致按優先順序；做完的在最後的「已完成」（按原來的分組）。
 用到別人的代碼（postmarketOS 補丁、下游驅動、第三方用戶態程序）先通讀、查安全性再用；對照原廠用手機的 live DT
 （`ios-sunstone/out/dt/sunstone-live.dts`）。
@@ -8,6 +8,10 @@
 ## 未完成
 
 ### 服務器、穩定性、功耗
+
+- [ ] Docker 發佈的端口繞過 ufw（2026-10-29 實測：ufw 默認拒絕入站，`-p 18080:80` 照樣從測試主機經 Wi-Fi 和 USB
+      都能訪問；Docker 的規則在 ufw 前面，是 Docker 的通常行為）：要不要默認只綁 127.0.0.1（`/etc/docker/daemon.json`
+      的 `"ip": "127.0.0.1"`，要對外時寫明 `-p 0.0.0.0:…`），或在 `DOCKER-USER` 鏈裡限制來源，由用户定。
 
 - [ ] 休眠：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`）**，`sleep.conf.d` 仍然關着自動休眠
       （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
@@ -46,10 +50,6 @@
       存着 `rcu_free_sheaf` 本身的地址；M1892 讓 `kfree_rcu_sheaf()` 直接返回 false 繞開（0010）。我們 7.3 裡這段還在
       （`mm/slab_common.c` 的 `kfree_rcu_sheaf`），boot-192 的 24 h 測試和之前都沒見過。pstore 裡出現 sheaf/kfree_rcu 調用棧時
       先查上游有沒有修，再考慮同樣繞開。
-- [ ] Docker 自檢：M1892 有 `m1892-docker-selftest`（用手機自己的 BusyBox 和 musl 臨時做一個 arm64 鏡像，測默認網橋、自定義
-      網絡的 DNS、卷、bind mount、內存限制、端口映射、Compose、Buildx，結束後清理）。我們是服務器，容器是很可能的用途，
-      但還沒測過：先用 `/usr/share/docker.io/contrib/check-config.sh` 之類對一下 sunstone.config（cgroup、overlayfs、
-      netfilter、veth、bridge），缺的補進配置，再照 M1892 的清單在 Ubuntu 的 docker.io 上跑一遍。
 - [ ] lockdep 報告（調試內核，boot-53）：PSCI cpuidle 電源域 `genpd_add_subdomain` 裏 raw spinlock 下拿普通
       spinlock（Invalid wait context）；`qcom_scm_probe` → `qcom_tzmem_enable` → `qcom_scm_shm_bridge_enable`
       在原子上下文調用會睡眠的 SCM 調用。都像上游問題，和顯示無關。
@@ -653,6 +653,13 @@
 
 ### 其他
 
+- [x] Docker（2026-10-29，boot-193）：moby 的 `contrib/check-config.sh` 對運行中的配置：缺 `NETFILTER_XT_NAT`（`-p` 要的 DNAT）、
+      `NETFILTER_XT_TARGET_REDIRECT`、`CFS_BANDWIDTH`（`--cpus`）、`BLK_DEV_THROTTLING`（io.max），補進 sunstone.config；
+      它報缺的 `IP_NF_FILTER`/`IP_NF_NAT` 等是傳統表，我們故意關着（iptables 走 nft 後端），沒加。裝了 docker.io 29.1.3、
+      docker-compose-v2、docker-buildx（overlayfs、systemd cgroup、cgroup v2，`docker info` 無告警）。
+      `tools/ubuntu/docker-selftest.sh`（照 M1892 的清單）17 項全過：默認網橋出站和 DNS、自定義網絡的名字解析、發佈端口
+      （本機和 Wi-Fi 地址）、命名卷、bind mount、內存限制（設置 + OOM 殺掉 137）、CPU 限制（cpu.max + 確實被節流）、io 限制、
+      pids 限制、Compose（兩個服務互相按名字訪問）、Buildx 構建再運行；結束後鏡像、容器、卷、網絡都清掉。
 - [x] ModemManager 每隔幾分鐘探測 `usb0`（gadget 的 NCM 網口），報 `Missing port probe for port (net/usb0)`：無害，
       加一條 udev 規則 `ID_MM_DEVICE_IGNORE=1` 就安靜了。
       （2026-10-29 做了：`80-sunstone-mm-gadget.rules`，按設備路徑匹配所有 gadget 網口，`udevadm test` 看到 usb0 有、wlan0 沒有。）
