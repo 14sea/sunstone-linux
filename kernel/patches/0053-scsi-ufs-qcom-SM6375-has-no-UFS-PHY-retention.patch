@@ -1,0 +1,37 @@
+scsi: ufs: qcom: SM6375 has no UFS PHY retention
+
+With the default system suspend level (device sleep, link in hibern8) the
+UFS PHY has to keep its state through the suspend. On SM6375 it does not
+once the SoC reaches VDD min: every s2idle that reached it ended in
+"ufshcd_uic_hibern8_exit: hibern8 exit failed. ret = 5" on resume and a
+host reset (sunstone, SM4375; seven of seven, none in suspends that stayed
+out of VDD min). With spm_lvl 5 (device power down, link off) the same
+s2idle reaches VDD min and resumes cleanly.
+
+Use the no_phy_retention drvdata, as for SM8550, which selects
+UFS_PM_LVL_5 for system suspend.
+
+Signed-off-by: 14sea <14sea@users.noreply.github.com>
+
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+index 42eb6efd4..935a2c767 100644
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -3009,12 +3009,17 @@ static const struct ufs_qcom_drvdata ufs_qcom_sm8550_drvdata = {
+ 	.no_phy_retention = true,
+ };
+ 
++static const struct ufs_qcom_drvdata ufs_qcom_sm6375_drvdata = {
++	.no_phy_retention = true,
++};
++
+ static const struct ufs_qcom_drvdata ufs_qcom_sa8255p_drvdata = {
+ 	.vops = &ufs_hba_qcom_sa8255p_vops
+ };
+ 
+ static const struct of_device_id ufs_qcom_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,ufshc" },
++	{ .compatible = "qcom,sm6375-ufshc", .data = &ufs_qcom_sm6375_drvdata },
+ 	{ .compatible = "qcom,sm8550-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sm8650-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sa8255p-ufshc", .data = &ufs_qcom_sa8255p_drvdata },

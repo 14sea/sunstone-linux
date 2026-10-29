@@ -1,0 +1,37 @@
+drm/msm/dsi/phy: runtime suspend the PHY in the late system suspend
+
+When the system suspends with the display on, the display is turned off
+in the DRM device's .prepare callback. The DSI PLL clocks are unprepared
+then and the clock core drops its runtime PM reference on the PHY, but the
+PM core already holds one of its own (device_prepare()), so the PHY stays
+runtime active and its iface clock prepared. On RPM SoCs that keeps the XO
+voted on in the RPM sleep set through s2idle: with the display on at
+suspend, APSS never sent the XO sleep vote 0 and the SoC stayed out of VDD
+min; with the display already off it reached it (sunstone, SM4375, traced
+with a kprobe on qcom_rpm_smd_write()).
+
+Force the PHY into runtime suspend in the late system suspend phase and
+restore it in the early resume, when the display is off.
+
+Signed-off-by: 14sea <14sea@users.noreply.github.com>
+
+diff --git a/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c b/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c
+index e0e95a7e8..a57dea60e 100644
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy.c
+@@ -727,8 +727,15 @@ static int dsi_phy_runtime_resume(struct device *dev)
+ 	return clk_prepare_enable(phy->ahb_clk);
+ }
+ 
++/*
++ * The display is turned off in the DRM device's .prepare, but by then the PM core holds a runtime
++ * PM reference on the PHY too (device_prepare()), so the clock core's runtime put after the PLL is
++ * unprepared does not suspend the PHY: suspend it late, or the iface clock keeps the XO voted on
++ * through s2idle when the system goes to sleep with the display on.
++ */
+ static const struct dev_pm_ops dsi_phy_pm_ops = {
+ 	SET_RUNTIME_PM_OPS(dsi_phy_runtime_suspend, dsi_phy_runtime_resume, NULL)
++	SET_LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+ };
+ 
+ static struct platform_driver dsi_phy_platform_driver = {

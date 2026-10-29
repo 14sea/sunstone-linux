@@ -1,0 +1,101 @@
+irqchip/qcom-mpm: write the next timer wakeup into the vMPM timer
+
+The vMPM starts with two timer words (TIMER0/TIMER1) that the driver never
+writes, so they stay at 0. Once the SoC enters XO shutdown or VDD min, the
+arch timer interrupt cannot wake it any more; the RPM wakes it at the time
+in the vMPM timer, as the downstream kernel's system_pm_rpm driver programs
+it before every sleep. With 0 there, a timer that is due while the SoC is
+in VDD min fires late, up to the next interrupt the MPM forwards.
+
+Before notifying the RPM, write the CPU cluster's next timer wakeup, which
+the genpd governor has just computed when it decided to power the cluster
+off, converted to arch counter ticks. In s2idle (and suspend to RAM) write
+all ones (no timer wakeup): there the cluster goes down through genpd's
+syscore path, no governor runs, the last computed wakeup is already past
+and timekeeping is suspended; writing that old value made the RPM keep the
+SoC out of VDD min.
+
+Seen on sunstone (SM4375): s2idle reaches VDD min with 0 and with all ones
+in the timer, so the timer decides when the SoC wakes, not whether it
+sleeps. Qualcomm posted the same idea in July 2026 ("Program wakeup timer
+when CPU cluster goes to LPM", with the MPM moved under the cluster domain);
+this version keeps the MPM as the cluster's parent domain.
+
+Signed-off-by: 14sea <14sea@users.noreply.github.com>
+
+diff --git a/drivers/irqchip/irq-qcom-mpm.c b/drivers/irqchip/irq-qcom-mpm.c
+index 8c575d7ce..898a6da48 100644
+--- a/drivers/irqchip/irq-qcom-mpm.c
++++ b/drivers/irqchip/irq-qcom-mpm.c
+@@ -11,7 +11,9 @@
+ #include <linux/io.h>
+ #include <linux/irqchip.h>
+ #include <linux/irqdomain.h>
++#include <linux/ktime.h>
+ #include <linux/mailbox_client.h>
++#include <linux/math64.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+@@ -21,6 +23,9 @@
+ #include <linux/slab.h>
+ #include <linux/soc/qcom/irq.h>
+ #include <linux/spinlock.h>
++#include <linux/suspend.h>
++
++#include <clocksource/arm_arch_timer.h>
+ 
+ /*
+  * This is the driver for Qualcomm MPM (MSM Power Manager) interrupt controller,
+@@ -292,6 +297,42 @@ static irqreturn_t qcom_mpm_handler(int irq, void *dev_id)
+ 	return ret;
+ }
+ 
++/*
++ * Once the SoC is in XO shutdown or VDD min, the arch timer interrupt can no longer wake it: the
++ * RPM wakes it at the time in the vMPM timer (TIMER0/TIMER1, arch counter ticks). Write the next
++ * timer wakeup of the CPU cluster (from the genpd governor, which has just decided to power the
++ * cluster off), or never while the system is suspended: in s2idle the cluster goes down through
++ * genpd's syscore path, where no governor runs and the old wakeup would already be past (and
++ * timekeeping is suspended), so the RPM would see an immediate wakeup and keep the SoC up.
++ */
++static void mpm_write_next_wakeup(struct qcom_mpm_priv *priv)
++{
++	ktime_t wakeup = KTIME_MAX;
++	u64 cycles = U64_MAX;
++	struct gpd_link *link;
++	s64 delta;
++
++	if (idle_should_enter_s2idle() || system_state == SYSTEM_SUSPEND)
++		goto write;
++
++	list_for_each_entry(link, &priv->genpd.parent_links, parent_node) {
++		struct generic_pm_domain *child = link->child;
++
++		if (child->gd && ktime_before(child->gd->next_hrtimer, wakeup))
++			wakeup = child->gd->next_hrtimer;
++	}
++
++	if (wakeup != KTIME_MAX) {
++		delta = max_t(s64, ktime_to_ns(ktime_sub(wakeup, ktime_get())), 0);
++		cycles = arch_timer_read_counter() +
++			 mul_u64_u32_div(delta, arch_timer_get_rate(), NSEC_PER_SEC);
++	}
++
++write:
++	writel_relaxed(lower_32_bits(cycles), priv->base);
++	writel_relaxed(upper_32_bits(cycles), priv->base + 4);
++}
++
+ static int mpm_pd_power_off(struct generic_pm_domain *genpd)
+ {
+ 	struct qcom_mpm_priv *priv = container_of(genpd, struct qcom_mpm_priv,
+@@ -301,6 +342,8 @@ static int mpm_pd_power_off(struct generic_pm_domain *genpd)
+ 	for (i = 0; i < priv->reg_stride; i++)
+ 		qcom_mpm_write(priv, MPM_REG_STATUS, i, 0);
+ 
++	mpm_write_next_wakeup(priv);
++
+ 	/* Notify RPM to write vMPM into HW */
+ 	ret = mbox_send_message(priv->mbox_chan, NULL);
+ 	if (ret < 0)
