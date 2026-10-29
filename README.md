@@ -7,12 +7,12 @@ Lomiri as an optional desktop. Brought up one milestone at a time, with Arch Lin
 mainline kernel, the kernel boots Ubuntu from `userdata`.
 The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 
-## Status (2026-10-27)
+## Status (2026-10-29)
 
 | Hardware | State |
 | --- | --- |
 | CPU, memory, UFS | 6x A55 + 2x A78 with cpufreq and cooling maps, 8 GB, UFS (local patch 0001) |
-| Display | 1080x2400 AMOLED, DSI + DSC panel driver (0008), 120 Hz and 60 Hz, backlight, power-key blanking |
+| Display | 1080x2400 AMOLED, DSI + DSC panel driver (0008), 120 Hz and 60 Hz, backlight, power-key blanking that turns the display pipeline off and keeps it off when a program opens and closes the DRM device (0048) |
 | GPU | Adreno 619 (0007), freedreno (Mesa), OpenGL 4.6 (Vulkan not tried); zap shader from the phone's vendor partition |
 | Touch, keys | FT5452 touchscreen (0002), power and volume keys |
 | Wi-Fi | WCN3988 over ath10k, the modem (MPSS) running its firmware; Xiaomi's board data from `modem_a`; linux-firmware's `firmware-5.bin` with single-chan-info-per-channel (`sunstone-ath10k-fw5`: scan survey data, no chan info warnings) |
@@ -25,7 +25,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Cellular | mobile data through IPA v4.11 and ModemManager (tested with an IoT SIM); the SIM comes back by itself after the SIM/microSD tray is swapped (`sunstone-sim-watch`) |
 | Sensors | accelerometer, gyroscope, light, proximity, magnetometer and compass through the ADSP's SSC (hexagonrpcd with writes, libssc, iio-sensor-proxy); GNOME auto-rotate |
 | DSPs | ADSP (audio, sensors), CDSP (Turing) with FastRPC (nothing uses it yet); fastrpc resumes an interrupted invoke instead of sending it again (0033) |
-| Power | s2idle with RTC and power-key wake (0032, 0033), automatic suspend left off for the server; bus scaling through the SM6375 NoC driver (0036: BIMC/CNOC/SNOC, CPU DDR floors per OPP and the CPU BWMON, votes from display, GPU, cameras, UFS, SD, USB, IPA, QUP); runtime PM fixes for gpucc (0034), UFS lane clocks (0035), wcd937x RX clocks (0030), q6afe clock votes (0031); the SoC does not reach XO shutdown / VDD minimization yet (`TODO.md`) |
+| Power | s2idle with RTC and power-key wake (0032, 0033), automatic suspend left off for the server; bus scaling through the SM6375 NoC driver (0036: BIMC/CNOC/SNOC, CPU DDR floors per OPP and the CPU BWMON, votes from display, GPU, cameras, UFS, SD, USB, IPA, QUP); runtime PM fixes for gpucc (0034), UFS lane clocks (0035), wcd937x RX clocks (0030), q6afe clock votes (0031); in s2idle the SoC reaches VDD minimization (RPM vmin, about 44 s of a 45 s sleep, display on or off): the DSI PHY and OPE release their clocks fully when idle (0049, 0050, 0052; a clock left prepared under the XO kept the XO voted on), the vMPM wakeup timer is written (0051), UFS turns its link off in suspend (0053: no PHY retention); in runtime idle the MPM holds the XO (0054), as XO shutdown there loses the UFS hibern8 link |
 | Other | vibration motor, IR transmitter |
 | Thermal | tsens zones throttle the CPU policies and the GPU; board thermistors (XO, skin, PA, SoC, camera flash) on the PMK8350/PM6125 ADCs, the skin zone throttling from 55 C; battery zone on the gauge's NTC capping the charge current (1 A from 45 C, stopped from 55 C: 0038); PM6125 die alarm at downstream's 95/115/145 C |
 | Reliability | hardware watchdog from the boot shim on (kernel hangs too), panics reboot into Linux, the boot marked successful for ABL, pstore (console, oops/panic records) kept across resets by resetting warm through PS_HOLD (0029), a directory per boot in `/var/lib/systemd/pstore`, QRTR HELLO fix (0010) for the modem's init stall; audio and sensors come back after an ADSP restart |
@@ -37,6 +37,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Network | systemd-networkd + wpa_supplicant by default; NetworkManager for Wi-Fi when a desktop wants it (`tools/ubuntu/wifi-to-networkmanager.sh`); usb0 always networkd |
 | Desktops | optional, started by hand on tty7: GNOME (Ubuntu session, landscape, `tools/ubuntu/add-gnome.sh`) or Lomiri, Ubuntu Touch's shell (`tools/ubuntu/add-lomiri.sh`) |
 | Media | PipeWire in 16 bit with the UCM profile; cameras through libcamera's simple pipeline and PipeWire's libcamera plugin (WirePlumber's V4L2 monitor off), buffers from the system dma-buf heap; GNOME Snapshot built with a patch that turns the preview and the pictures with the display (`tools/ubuntu/add-snapshot.sh`); libcamera 0.7.0 with contrast-detect autofocus in `/usr/local` (`tools/ubuntu/add-libcamera-af.sh`), switched to a fixed focus at about 2 m with `sunstone-camera-focus fixed` or GNOME's Camera Focus launcher |
+| Containers | docker.io with Compose v2 and Buildx (`tools/ubuntu/add-docker.sh`), published ports on 127.0.0.1 unless a `-p` names an address (Docker's rules come before ufw's); kernel options for port mapping and CPU/IO limits; `tools/ubuntu/docker-selftest.sh` |
 | Sensors | hexagonrpcd built with a write patch (`tools/ubuntu/add-hexagonrpcd.sh`), libssc and iio-sensor-proxy with SSC support (`tools/ubuntu/add-ssc.sh`) |
 
 Open items are in `TODO.md` (earpiece, SMS, Venus with

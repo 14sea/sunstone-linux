@@ -438,7 +438,7 @@
       多半是省電造成的（各只測了一次）。
 
 - [x] Ubuntu 上跑一次 24 h 穩定性測試（boot-192，2026-10-27 21:51 – 10-28 22:02 UTC，**通過**，數字見 LOG）：在最終配置上（modem 修復、電源鍵、啟動成功標記、省電關、
-      開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時的重連單列在「服務器、穩定性、功耗」）。boot-185 起總線改由 interconnect 驅動調頻，
+      開機看門狗、ufw、藍牙；NetworkManager 管 Wi-Fi 時的重連 2026-10-29 另外測了，見「Wi-Fi 斷線重連」後面那條）。boot-185 起總線改由 interconnect 驅動調頻，
       這次測試也是對它的長時間驗證（看 dmesg 裡的 underrun、SMMU fault 和 `interconnect_summary`）。
 
 ### 遷移到 Ubuntu Server（2026-10-24 定的計劃：Arch 不留在手機上，隨時可以從備份刷回）

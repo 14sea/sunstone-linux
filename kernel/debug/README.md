@@ -76,6 +76,22 @@ Low-power investigation (2026-10-27, `TODO.md` under suspend), built like `ramoo
   now fight the driver's, and unloading it sends INT_MAX over them until the driver votes again.
   Only the `misc=1` clocks (QDSS, BIMC_FREQ_LOG, CE1, HWKM, PKA) are still nobody else's.
 
+What blocked vmin turned out to be the XO vote (2026-10-29, local patches 0048-0054): clk-smd-rpm votes
+for the XO on clock *prepare*, so any prepared clock under `bi_tcxo` keeps it on in the sleep set
+(`/sys/kernel/debug/clk/*/clk_prepare_count`). Two tools that found it, no module needed:
+
+- every request the APSS sends to the RPM, as a kprobe event (key and first value; types and keys
+  are little-endian fourcc, e.g. `clk0` id 0 = XO, state 1 = sleep set):
+
+      echo 'p:rpmw qcom_rpm_smd_write state=%x1:s32 type=%x2:x32 id=%x3:u32 key=+0(%x4):x32 val=+8(%x4):u32' \
+          >> /sys/kernel/tracing/kprobe_events
+      echo 1 > /sys/kernel/tracing/events/kprobes/rpmw/enable
+
+  Save `trace` before removing the event: removing a dynamic event clears the buffer.
+- the USB gadget can be disconnected without pulling the cable (`echo "" >
+  /sys/kernel/config/usb_gadget/sunstone/UDC`, `power/control` of `4e00000.usb` to `auto`), so that
+  USB lets go of the XO; write the UDC name back to reconnect.
+
 ## `mmio-peek/`, `mmio-poke/`
 
 Single registers by physical address (2026-10-27, the Venus/GPLL11 work), built like `ramoops-peek`:
