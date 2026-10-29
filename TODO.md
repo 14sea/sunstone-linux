@@ -9,48 +9,6 @@
 
 ### 服務器、穩定性、功耗
 
-- [ ] 休眠：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`），2026-10-29 起進得了 VDD min（見下）**，`sleep.conf.d` 仍然關着自動休眠
-      （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
-      - 以前「第二次沒恢復」：boot-180 上 pm_test freezer 就讓手機硬復位。凍結打斷 hexagonrpcd 的 fastrpc 調用，重啟的
-        ioctl 把同一調用重發，sensors PD 崩潰（本地補丁 0033 修）；ADSP 重啟時 LPASS macro 在時鐘失敗後照樣寫寄存器，
-        總線卡死（`pm_clk_resume()` 不報錯，本地補丁 0032 修）。
-      - 驗證（boot-181）：pm_test freezer ×4、devices、platform；真 s2idle：RTC 30 s、連續兩次 20 s、電源鍵（約 16 s）喚醒，
-        suspend_stats 10 次成功、0 失敗；恢復後 USB、Wi-Fi（重連）、modem、傳感器正常。設備掛起 270 ms、恢復 375 ms，
-        最慢 wiphy（約 220–290 ms）。`rtcwake -m freeze -s N`（RTC 不是 UTC 牆鐘，rtcwake 打印 1972 年，無害）。
-      - **vmin/vlow 為 0 的調查（2026-10-27 晚，boot-183/184，未完）**：已修 APSS 側三個阻塞者：gpucc 的兩個
-        CLK_IS_CRITICAL 時鐘讓 gpucc 永遠 runtime active、VDDGX/MX 卡在 LOW_SVS（本地補丁 0034，DTS 去掉 GPU 的 iface）；
-        文本模式沒人打開 GPU，runtime PM 不啟用（`sunstone-gpu-load.service`）；ufs-qcom 每次 runtime resume 重複
-        enable 全部 UFS 時鐘（含 ref_clk → XO）而只關一次（本地補丁 0035）。之後空閒時 cx/mx/gx 全 off，`bi_tcxo` 只剩
-        USB（gadget 連着就必須開；dwc3 默認 `power/control=on`，拔線也不掛起，設 auto 後拔線 XO 計數 0）。總線睡眠集合投 0
-        （`kernel/debug/rpm-sleep-vote`）、Wi-Fi 省電、卸 SD、停 CDSP、modem 低功耗都試過，仍為 0。SMEM 子系統統計
-        （`kernel/debug/smem-sleep-peek`）：APSS、ADSP、CDSP 都在睡，**modem 1731 s 裏只睡了 244 s**，是現在的阻塞者
-        （WLAN 固件在 modem Q6 上）。**modem 分級實驗（boot-184，SMEM 統計，USB 插着也能看）**：Wi-Fi 省電關時
-        modem 每 10 s 睡 0 s；省電開約 9 s（每秒醒約 3.5 次，聽 beacon）；Wi-Fi 關約 9.3 s；再加 modem 低功耗 10 s。
-        即 **Wi-Fi 省電關 = modem 一直醒着**（用户之前定的「只有藍牙連着時才開省電」；2026-10-27 用户看過這個結果，決定**保持現狀**，可達性優先）。但 USB 斷開 + Wi-Fi 省電開（modem 90% 在睡、APSS/ADSP/CDSP 都在睡）90 s，vlow/vmin 仍 0；
-        再給 BIMC/CNOC/SNOC/MMNRT/MMRT/QUP/SNOC_PERIPH/SNOC_LPASS 和 QDSS/BIMC_FREQ_LOG/CE1/HWKM/PKA 的 APSS 睡眠集合投 0
-        （`kernel/debug/rpm-sleep-vote misc=1`）也仍 0。RPM 的 APSS master stats（`rpm-master-peek count=1`）`xo_count`
-        一直 0，大概是「整片 XO 關過幾次」而不是 APSS 自己的投票，不能據此定位。APSS 每秒醒約 20 次（function-call IPI
-        39/s、定時器廣播 31/s、UFS 4.5/s、glink-rpm 2.3/s）。沒查的：RPM 穩壓器的睡眠集合、TZ、RPM 固件是否在 runtime
-        idle 做 XO 關閉（下游可能只在 suspend 時）。注意：讀 RPM
-        msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。（當時）sm6375 沒有
-        interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX；**boot-185 起有了（本地補丁 0036）**，總線按投票走，
-        空閒時 vlow/vmin 仍 0（boot-185 只看了開機後幾分鐘，沒重做上面的實驗）。
-      - **vmin 通了（2026-10-29，boot-194–200，本地補丁 0048–0054）**：s2idle 時 SoC 進 VDD min（45 s 裏約 44 s，每次約 98 次進出），
-        亮屏、熄屏、USB 連着都行，醒來 UFS、顯示正常。原因一層層：
-        - clk-smd-rpm 在 **prepare** 時投 XO（含睡眠集合）；DSI PHY 和 OPE 用 pm_clk，時鐘加入時就 prepare、掛起只 disable，
-          `bi_tcxo` 永遠被 prepare → XO 的睡眠集合票永遠是開（0049、0050）。之前所有實驗都是 0 就是這個。
-        - 亮屏掛起時 DSI PHY 被 PM 核心 `device_prepare()` 的引用擋住不 runtime 掛起（0052：late 階段 force suspend）。
-        - 進了 vmin 恢復時 UFS `hibern8 exit failed`：SM6375 的 UFS PHY 沒有保持（0053：系統掛起用鏈路關的 spm_lvl 5）。
-        - vMPM 的 TIMER0/1 主線從不寫（0051：睡前寫簇的下一次定時器喚醒，s2idle 時全 1；高通 2026-07 也發了同樣思路的補丁）。
-        - **運行時 XO 關閉（vlow）會讓 UFS 掛死**（USB 拔、Wi-Fi 省電開時 vlow 404 次，hibern8 鏈路丟、I/O 卡住，要 SysRq 重啟）：
-          以前是 pm_clk 誤打誤撞一直拿着 XO。0054：MPM 驅動拿着 XO，只在 late 系統掛起到早恢復之間放 → **只有休眠時才進
-          XO 關閉/VDD min**；驗證：軟斷 USB + 省電開，`bi_tcxo` 只剩 MPM 1 個，vlow 0、UFS 0 錯、`sleep(1)` 最多晚 2.2 ms。
-        - 順帶：控制台熄屏後任何程序開關一次 DRM 設備就把顯示管線重新點亮（1.5 GB/s 掃描黑屏、CX/MX 被投高），0048 修。
-      - 剩下：自動休眠開不開、怎麼喚醒（用户定；服務器現在不休眠，運行時本來就因為 USB 連着、Wi-Fi 省電關進不了 vmin）；
-        Wi-Fi 喚醒（WoWLAN：固件支持魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；
-        USB 線上休眠後 gadget 要重連（插着線休眠時 `dwc3-qcom: port-1 HS-PHY not in L2`）；開機頭一分鐘內的 s2idle 進不了或只進
-        幾次 vmin（沒查）；想讓運行時也能 XO 關閉，得先讓 UFS 在 hibern8 時不丟狀態（或運行時也鏈路關），再去掉 MPM 的 XO 票；
-        `clk_ignore_unused`/`pd_ignore_unused` 還在（RPM 的 QDSS/CE1/HWKM/PKA 等時鐘停在 hand-off 票，現在不擋 vmin）。
 - M1892 裡不用跟的：UFS Auto-Hibern8 時鐘請求（M1892 的 0011，上游 76417038）7.3 已經有；但 M1892 實測 UFS 完整運行時 PM（rpm_lvl 3）
   會卡死整機、只開 AH8，做低功耗（XO shutdown）時記得這點。EDK2 啟動鏈（SM4375 沒有現成的，shim 夠用）、Phosh 觸屏體驗
   不是我們的目標。
@@ -396,6 +354,48 @@
       （2026-10-28 整理時關閉：之後到 boot-192 沒再出現，現在有 pstore 和看門狗，再出現時會留下記錄。）
 
 ### 服務器（長期熄屏運行，2026-10-23 起的目標）
+
+- [x] 休眠（**2026-10-29 用户定：平時不開自動休眠，作為服務器運行**；`sleep.conf.d` 的 AllowSuspend=no 等保持，logind 不管電源鍵）：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`），2026-10-29 起進得了 VDD min（見下）**，`sleep.conf.d` 仍然關着自動休眠
+      （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
+      - 以前「第二次沒恢復」：boot-180 上 pm_test freezer 就讓手機硬復位。凍結打斷 hexagonrpcd 的 fastrpc 調用，重啟的
+        ioctl 把同一調用重發，sensors PD 崩潰（本地補丁 0033 修）；ADSP 重啟時 LPASS macro 在時鐘失敗後照樣寫寄存器，
+        總線卡死（`pm_clk_resume()` 不報錯，本地補丁 0032 修）。
+      - 驗證（boot-181）：pm_test freezer ×4、devices、platform；真 s2idle：RTC 30 s、連續兩次 20 s、電源鍵（約 16 s）喚醒，
+        suspend_stats 10 次成功、0 失敗；恢復後 USB、Wi-Fi（重連）、modem、傳感器正常。設備掛起 270 ms、恢復 375 ms，
+        最慢 wiphy（約 220–290 ms）。`rtcwake -m freeze -s N`（RTC 不是 UTC 牆鐘，rtcwake 打印 1972 年，無害）。
+      - **vmin/vlow 為 0 的調查（2026-10-27 晚，boot-183/184，未完）**：已修 APSS 側三個阻塞者：gpucc 的兩個
+        CLK_IS_CRITICAL 時鐘讓 gpucc 永遠 runtime active、VDDGX/MX 卡在 LOW_SVS（本地補丁 0034，DTS 去掉 GPU 的 iface）；
+        文本模式沒人打開 GPU，runtime PM 不啟用（`sunstone-gpu-load.service`）；ufs-qcom 每次 runtime resume 重複
+        enable 全部 UFS 時鐘（含 ref_clk → XO）而只關一次（本地補丁 0035）。之後空閒時 cx/mx/gx 全 off，`bi_tcxo` 只剩
+        USB（gadget 連着就必須開；dwc3 默認 `power/control=on`，拔線也不掛起，設 auto 後拔線 XO 計數 0）。總線睡眠集合投 0
+        （`kernel/debug/rpm-sleep-vote`）、Wi-Fi 省電、卸 SD、停 CDSP、modem 低功耗都試過，仍為 0。SMEM 子系統統計
+        （`kernel/debug/smem-sleep-peek`）：APSS、ADSP、CDSP 都在睡，**modem 1731 s 裏只睡了 244 s**，是現在的阻塞者
+        （WLAN 固件在 modem Q6 上）。**modem 分級實驗（boot-184，SMEM 統計，USB 插着也能看）**：Wi-Fi 省電關時
+        modem 每 10 s 睡 0 s；省電開約 9 s（每秒醒約 3.5 次，聽 beacon）；Wi-Fi 關約 9.3 s；再加 modem 低功耗 10 s。
+        即 **Wi-Fi 省電關 = modem 一直醒着**（用户之前定的「只有藍牙連着時才開省電」；2026-10-27 用户看過這個結果，決定**保持現狀**，可達性優先）。但 USB 斷開 + Wi-Fi 省電開（modem 90% 在睡、APSS/ADSP/CDSP 都在睡）90 s，vlow/vmin 仍 0；
+        再給 BIMC/CNOC/SNOC/MMNRT/MMRT/QUP/SNOC_PERIPH/SNOC_LPASS 和 QDSS/BIMC_FREQ_LOG/CE1/HWKM/PKA 的 APSS 睡眠集合投 0
+        （`kernel/debug/rpm-sleep-vote misc=1`）也仍 0。RPM 的 APSS master stats（`rpm-master-peek count=1`）`xo_count`
+        一直 0，大概是「整片 XO 關過幾次」而不是 APSS 自己的投票，不能據此定位。APSS 每秒醒約 20 次（function-call IPI
+        39/s、定時器廣播 31/s、UFS 4.5/s、glink-rpm 2.3/s）。沒查的：RPM 穩壓器的睡眠集合、TZ、RPM 固件是否在 runtime
+        idle 做 XO 關閉（下游可能只在 suspend 時）。注意：讀 RPM
+        msg RAM 的每主機統計（0x45f1150 起）會讓 SoC 復位，只有 APSS 那塊（0x45f0150，32 位讀）可讀。（當時）sm6375 沒有
+        interconnect 驅動，BIMC 等總線在活動集合裡一直是 INT_MAX；**boot-185 起有了（本地補丁 0036）**，總線按投票走，
+        空閒時 vlow/vmin 仍 0（boot-185 只看了開機後幾分鐘，沒重做上面的實驗）。
+      - **vmin 通了（2026-10-29，boot-194–200，本地補丁 0048–0054）**：s2idle 時 SoC 進 VDD min（45 s 裏約 44 s，每次約 98 次進出），
+        亮屏、熄屏、USB 連着都行，醒來 UFS、顯示正常。原因一層層：
+        - clk-smd-rpm 在 **prepare** 時投 XO（含睡眠集合）；DSI PHY 和 OPE 用 pm_clk，時鐘加入時就 prepare、掛起只 disable，
+          `bi_tcxo` 永遠被 prepare → XO 的睡眠集合票永遠是開（0049、0050）。之前所有實驗都是 0 就是這個。
+        - 亮屏掛起時 DSI PHY 被 PM 核心 `device_prepare()` 的引用擋住不 runtime 掛起（0052：late 階段 force suspend）。
+        - 進了 vmin 恢復時 UFS `hibern8 exit failed`：SM6375 的 UFS PHY 沒有保持（0053：系統掛起用鏈路關的 spm_lvl 5）。
+        - vMPM 的 TIMER0/1 主線從不寫（0051：睡前寫簇的下一次定時器喚醒，s2idle 時全 1；高通 2026-07 也發了同樣思路的補丁）。
+        - **運行時 XO 關閉（vlow）會讓 UFS 掛死**（USB 拔、Wi-Fi 省電開時 vlow 404 次，hibern8 鏈路丟、I/O 卡住，要 SysRq 重啟）：
+          以前是 pm_clk 誤打誤撞一直拿着 XO。0054：MPM 驅動拿着 XO，只在 late 系統掛起到早恢復之間放 → **只有休眠時才進
+          XO 關閉/VDD min**；驗證：軟斷 USB + 省電開，`bi_tcxo` 只剩 MPM 1 個，vlow 0、UFS 0 錯、`sleep(1)` 最多晚 2.2 ms。
+        - 順帶：控制台熄屏後任何程序開關一次 DRM 設備就把顯示管線重新點亮（1.5 GB/s 掃描黑屏、CX/MX 被投高），0048 修。
+      - 以後真要休眠時才需要的：Wi-Fi 喚醒（WoWLAN：固件支持魔術包/模式匹配/斷線，`iw phy0 wowlan enable magic-packet` + wifi 節點 `power/wakeup`）；
+        USB 線上休眠後 gadget 要重連（插着線休眠時 `dwc3-qcom: port-1 HS-PHY not in L2`）；開機頭一分鐘內的 s2idle 進不了或只進
+        幾次 vmin（沒查）；想讓運行時也能 XO 關閉，得先讓 UFS 在 hibern8 時不丟狀態（或運行時也鏈路關），再去掉 MPM 的 XO 票；
+        `clk_ignore_unused`/`pd_ignore_unused` 還在（RPM 的 QDSS/CE1/HWKM/PKA 等時鐘停在 hand-off 票，現在不擋 vmin）。
 
 - [x] 充電上限：恆壓 4.1 V（約 80 %，m5 的 `&charger`），運行時可寫 `constant_charge_voltage` 臨時充滿。
 - [x] panic 後自動回 Linux：shim 默認不設 fastboot 原因（`PON_FASTBOOT=1` 構建恢復開發用的安全網）。

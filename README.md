@@ -39,7 +39,7 @@ The working notes (`PLAN.md`, `TODO.md`, `LOG.md`) are in Chinese.
 | Media | PipeWire in 16 bit with the UCM profile; cameras through libcamera's simple pipeline and PipeWire's libcamera plugin (WirePlumber's V4L2 monitor off), buffers from the system dma-buf heap; GNOME Snapshot built with a patch that turns the preview and the pictures with the display (`tools/ubuntu/add-snapshot.sh`); libcamera 0.7.0 with contrast-detect autofocus in `/usr/local` (`tools/ubuntu/add-libcamera-af.sh`), switched to a fixed focus at about 2 m with `sunstone-camera-focus fixed` or GNOME's Camera Focus launcher |
 | Sensors | hexagonrpcd built with a write patch (`tools/ubuntu/add-hexagonrpcd.sh`), libssc and iio-sensor-proxy with SSC support (`tools/ubuntu/add-ssc.sh`) |
 
-Open items are in `TODO.md` (suspend policy and Wi-Fi wake (s2idle reaches VDD min since 2026-10-29), earpiece, SMS, Venus with
+Open items are in `TODO.md` (earpiece, SMS, Venus with
 this firmware, the OPE and lens shading in libcamera, GNOME's smoothness, panel brightness curve, DSI PHY clock
 warning, dispcc PLL latch, ...).
 
@@ -51,7 +51,7 @@ warning, dispcc PLL latch, ...).
 | M4 hardware | UFS, keys, FT5452 touch, SM5602 fuel gauge, SC89890H charger, RTC offset, PON reboot modes |
 | M5 Wi-Fi | modem (MPSS) + WCN3988 over ath10k, joins on boot |
 | M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver, built in |
-| Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak on Ubuntu passed (2026-10-28, boot-192); Docker with Compose and Buildx, published ports local unless given an address (`tools/ubuntu/add-docker.sh`, `docker-selftest.sh`, 2026-10-29) |
+| Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak on Ubuntu passed (2026-10-28, boot-192); Docker with Compose and Buildx, published ports local unless given an address (`tools/ubuntu/add-docker.sh`, `docker-selftest.sh`, 2026-10-29); no automatic suspend, but s2idle reaches VDD min (2026-10-29) |
 | Ubuntu | Ubuntu Server 26.04 replaces Arch; Bluetooth; GNOME and Lomiri as optional desktops |
 | Peripherals | audio, sensors, cellular data, cameras and flash, vibration, IR (2026-10-25/26); board thermistors, pstore, microSD, main camera autofocus, then the SM6375 interconnects, the battery thermal zone, the OPE offline ISP and the camera EEPROM (2026-10-27) |
 
