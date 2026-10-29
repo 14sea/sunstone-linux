@@ -51,7 +51,7 @@ warning, dispcc PLL latch, ...).
 | M4 hardware | UFS, keys, FT5452 touch, SM5602 fuel gauge, SC89890H charger, RTC offset, PON reboot modes |
 | M5 Wi-Fi | modem (MPSS) + WCN3988 over ath10k, joins on boot |
 | M6 desktop | Phosh on the Adreno 619 (freedreno); real display: MDSS/DPU/DSI + DSC panel driver, built in |
-| Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak on Ubuntu passed (2026-10-28, boot-192); Docker with Compose and Buildx (`tools/ubuntu/docker-selftest.sh`, 2026-10-29) |
+| Server | watchdog, boot-success mark, charge limit, text console with power-key blanking; 24 h soak on Ubuntu passed (2026-10-28, boot-192); Docker with Compose and Buildx, published ports local unless given an address (`tools/ubuntu/add-docker.sh`, `docker-selftest.sh`, 2026-10-29) |
 | Ubuntu | Ubuntu Server 26.04 replaces Arch; Bluetooth; GNOME and Lomiri as optional desktops |
 | Peripherals | audio, sensors, cellular data, cameras and flash, vibration, IR (2026-10-25/26); board thermistors, pstore, microSD, main camera autofocus, then the SM6375 interconnects, the battery thermal zone, the OPE offline ISP and the camera EEPROM (2026-10-27) |
 

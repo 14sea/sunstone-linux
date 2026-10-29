@@ -2,7 +2,7 @@
 # sunstone: Docker self-test, run on the phone as root (after M1892's m1892-docker-selftest list): bridge,
 # DNS, custom network, published port, volume, bind mount, memory/cpu/io/pids limits, Compose, Buildx.
 # Pulls alpine and busybox from Docker Hub; everything it makes is removed again, the two images too.
-#   tools/ubuntu/docker-selftest.sh   (needs docker.io, docker-compose-v2, docker-buildx; curl)
+#   tools/ubuntu/docker-selftest.sh   (after tools/ubuntu/add-docker.sh; needs curl)
 set -u
 # alpine's busybox has no httpd: the servers use the busybox image
 I=alpine:3.22; W=busybox:1.37; P=sunstone-dt; pass=0; fail=0
@@ -22,10 +22,14 @@ docker run --rm $I nslookup -timeout=3 deb.debian.org >/dev/null 2>&1; ok "defau
 docker network create $P-net >/dev/null && docker run -d --name $P-web --network $P-net $W \
 	sh -c 'mkdir /w && echo hello-net > /w/index.html && httpd -f -p 80 -h /w' >/dev/null; sleep 1
 r=$(docker run --rm --network $P-net $I wget -qO- http://$P-web/); [ "$r" = hello-net ]; ok "custom network, name resolution" $? "($r)"
-docker run -d --name $P-pub -p 18080:80 $W sh -c 'mkdir /w && echo hello-port > /w/index.html && httpd -f -p 80 -h /w' >/dev/null; sleep 1
+# add-docker.sh makes 127.0.0.1 the default for published ports: -p PORT stays local, -p 0.0.0.0:PORT is open
+docker run -d --name $P-pub -p 18080:80 -p 0.0.0.0:18081:80 $W sh -c 'mkdir /w && echo hello-port > /w/index.html && httpd -f -p 80 -h /w' >/dev/null; sleep 1
 r=$(curl -s -m 3 http://127.0.0.1:18080/); [ "$r" = hello-port ]; ok "published port, from the host" $? "($r)"
 wip=$(ip -4 -o addr show wlan0 | awk '{ split($4, a, "/"); print a[1]; exit }')
-r=$(curl -s -m 3 http://$wip:18080/); [ "$r" = hello-port ]; ok "published port, via the Wi-Fi address ($wip)" $? "($r)"
+if grep -qs '"ip": *"127.0.0.1"' /etc/docker/daemon.json; then
+	r=$(curl -s -m 3 http://$wip:18080/); [ -z "$r" ]; ok "published port without an address stays local (not on $wip)" $? "($r)"
+fi
+r=$(curl -s -m 3 http://$wip:18081/); [ "$r" = hello-port ]; ok "published port on 0.0.0.0, via the Wi-Fi address ($wip)" $? "($r)"
 docker volume create $P-vol >/dev/null && docker run --rm -v $P-vol:/v $I sh -c 'echo vol-data > /v/f' &&
 	r=$(docker run --rm -v $P-vol:/v $I cat /v/f); [ "$r" = vol-data ]; ok "named volume" $?
 mkdir -p /tmp/$P && echo bind-data > /tmp/$P/f && r=$(docker run --rm -v /tmp/$P:/b $I sh -c 'cat /b/f; echo w > /b/g') &&

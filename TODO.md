@@ -9,10 +9,6 @@
 
 ### 服務器、穩定性、功耗
 
-- [ ] Docker 發佈的端口繞過 ufw（2026-10-29 實測：ufw 默認拒絕入站，`-p 18080:80` 照樣從測試主機經 Wi-Fi 和 USB
-      都能訪問；Docker 的規則在 ufw 前面，是 Docker 的通常行為）：要不要默認只綁 127.0.0.1（`/etc/docker/daemon.json`
-      的 `"ip": "127.0.0.1"`，要對外時寫明 `-p 0.0.0.0:…`），或在 `DOCKER-USER` 鏈裡限制來源，由用户定。
-
 - [ ] 休眠：**s2idle 本身能用了（2026-10-27，boot-181，內核 `gfbe53596d29e`）**，`sleep.conf.d` 仍然關着自動休眠
       （睡着時 USB gadget 和 Wi-Fi 都斷，服務器會失聯；開不開、怎麼喚醒由用户定）。
       - 以前「第二次沒恢復」：boot-180 上 pm_test freezer 就讓手機硬復位。凍結打斷 hexagonrpcd 的 fastrpc 調用，重啟的
@@ -660,6 +656,9 @@
       `tools/ubuntu/docker-selftest.sh`（照 M1892 的清單）17 項全過：默認網橋出站和 DNS、自定義網絡的名字解析、發佈端口
       （本機和 Wi-Fi 地址）、命名卷、bind mount、內存限制（設置 + OOM 殺掉 137）、CPU 限制（cpu.max + 確實被節流）、io 限制、
       pids 限制、Compose（兩個服務互相按名字訪問）、Buildx 構建再運行；結束後鏡像、容器、卷、網絡都清掉。
+      發佈的端口繞過 ufw（ufw 默認拒絕入站，`-p 18080:80` 照樣從測試主機經 Wi-Fi 和 USB 都能訪問；Docker 的規則在 ufw
+      前面）：用户選默認只綁本機，`tools/ubuntu/add-docker.sh` 裝包並寫 `/etc/docker/daemon.json` 的 `"ip": "127.0.0.1"`；
+      之後 `-p 18080:80` 只聽 127.0.0.1（測試主機兩個地址都連不上），要對外寫 `-p 0.0.0.0:…`（兩個地址都通）。自檢 18 項全過。
 - [x] ModemManager 每隔幾分鐘探測 `usb0`（gadget 的 NCM 網口），報 `Missing port probe for port (net/usb0)`：無害，
       加一條 udev 規則 `ID_MM_DEVICE_IGNORE=1` 就安靜了。
       （2026-10-29 做了：`80-sunstone-mm-gadget.rules`，按設備路徑匹配所有 gadget 網口，`udevadm test` 看到 usb0 有、wlan0 沒有。）
